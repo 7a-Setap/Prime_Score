@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrimeScore - Football Statistics</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <h1>⚽ PrimeScore</h1>
+            </div>
+            <div class="nav-links" id="navLinks">
+                <a href="#" data-page="home" class="nav-link active">Home</a>
+                <a href="#" data-page="live" class="nav-link">Live Matches</a>
+                <a href="#" data-page="fixtures" class="nav-link">Fixtures</a>
+                <a href="#" data-page="results" class="nav-link">Results</a>
+                <a href="#" data-page="leagues" class="nav-link">Leagues</a>
+                <a href="#" data-page="compare" class="nav-link">Compare</a>
+                <a href="#" data-page="favourites" class="nav-link">Favourites</a>
+                <a href="#" data-page="settings" class="nav-link">Settings</a>
+            </div>
+            <div class="nav-user">
+                <span id="usernameDisplay"></span>
+                <button id="logoutBtn" class="btn-logout">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+        <!-- Login Page (FR10) -->
+        <section id="loginPage" class="page active">
+            <div class="login-container">
+                <div class="login-box">
+                    <h2>Welcome to PrimeScore</h2>
+                    <p class="subtitle">Your personalized football statistics platform</p>
+                    
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="login">Login</button>
+                        <button class="tab-btn" data-tab="register">Register</button>
+                    </div>
+
+                    <!-- Login Form -->
+                    <form id="loginForm" class="auth-form active">
+                        <div class="form-group">
+                            <label for="loginUsername">Username</label>
+                            <input type="text" id="loginUsername" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword" required>
+                        </div>
+                        <button type="submit" class="btn-primary">Login</button>
+                        <p class="error-message" id="loginError"></p>
+                    </form>
+
+                    <!-- Register Form -->
+                    <form id="registerForm" class="auth-form">
+                        <div class="form-group">
+                            <label for="registerUsername">Username</label>
+                            <input type="text" id="registerUsername" required minlength="3">
+                        </div>
+                        <div class="form-group">
+                            <label for="registerPassword">Password</label>
+                            <input type="password" id="registerPassword" required minlength="8">
+                        </div>
+                        <div class="form-group">
+                            <label for="registerPasswordConfirm">Confirm Password</label>
+                            <input type="password" id="registerPasswordConfirm" required>
+                        </div>
+                        <button type="submit" class="btn-primary">Register</button>
+                        <p class="error-message" id="registerError"></p>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- Home Page (FR1, FR3) -->
+        <section id="homePage" class="page">
+            <div class="container">
+                <h2>Welcome back, <span id="welcomeName"></span>!</h2>
+                
+                <!-- First Time User Message -->
+                <div id="firstTimeMessage" class="info-banner" style="display: none;">
+                    <p>👋 Welcome to PrimeScore! Set up your favourites to see personalized content here.</p>
+                    <button onclick="navigateTo('favourites')" class="btn-primary">Set Favourites</button>
+                </div>
+
+                <!-- Live Matches Section (FR3, FR4) -->
+                <div class="section">
+                    <div class="section-header">
+                        <h3>🔴 Live Matches</h3>
+                        <button onclick="refreshLiveMatches()" class="btn-refresh">Refresh</button>
+                    </div>
+                    <div id="liveMatchesHome" class="matches-grid"></div>
+                </div>
+
+                <!-- Upcoming Fixtures (FR4) -->
+                <div class="section">
+                    <h3>📅 Upcoming Fixtures</h3>
+                    <div id="upcomingFixturesHome" class="matches-grid"></div>
+                </div>
+
+                <!-- Recent Results (FR5) -->
+                <div class="section">
+                    <h3>✅ Recent Results</h3>
+                    <div id="recentResultsHome" class="matches-grid"></div>
+                </div>
+
+                <!-- League Tables (FR6) -->
+                <div class="section">
+                    <h3>🏆 League Tables</h3>
+                    <div id="leagueTablesHome"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Live Matches Page (FR3) -->
+        <section id="livePage" class="page">
+            <div class="container">
+                <h2>🔴 Live Matches</h2>
+                <button onclick="loadLiveMatches()" class="btn-primary">Refresh</button>
+                <div id="liveMatchesList" class="matches-list"></div>
+            </div>
+        </section>
+
+        <!-- Fixtures Page (FR4) -->
+        <section id="fixturesPage" class="page">
+            <div class="container">
+                <h2>📅 Upcoming Fixtures</h2>
+                <div class="filters">
+                    <input type="date" id="fixturesDateFrom" class="input-date">
+                    <input type="date" id="fixturesDateTo" class="input-date">
+                    <button onclick="loadFixtures()" class="btn-primary">Load Fixtures</button>
+                </div>
+                <div id="fixturesList" class="matches-list"></div>
+            </div>
+        </section>
+
+        <!-- Results Page (FR5) -->
+        <section id="resultsPage" class="page">
+            <div class="container">
+                <h2>✅ Recent Results</h2>
+                <div class="filters">
+                    <input type="date" id="resultsDateFrom" class="input-date">
+                    <input type="date" id="resultsDateTo" class="input-date">
+                    <button onclick="loadResults()" class="btn-primary">Load Results</button>
+                </div>
+                <div id="resultsList" class="matches-list"></div>
+            </div>
+        </section>
+
+        <!-- Leagues Page (FR6) -->
+        <section id="leaguesPage" class="page">
+            <div class="container">
+                <h2>🏆 League Standings</h2>
+                <div class="league-selector">
+                    <select id="leagueSelect" onchange="loadLeagueStandings(this.value)">
+                        <option value="">Select a league...</option>
+                        <option value="PL">Premier League</option>
+                        <option value="CL">Champions League</option>
+                        <option value="BL1">Bundesliga</option>
+                        <option value="SA">Serie A</option>
+                        <option value="PD">La Liga</option>
+                        <option value="FL1">Ligue 1</option>
+                        <option value="ELC">Championship</option>
+                    </select>
+                </div>
+                <div id="leagueStandingsDisplay"></div>
+            </div>
+        </section>
+
+        <!-- Compare Page (FR8) -->
+        <section id="comparePage" class="page">
+            <div class="container">
+                <h2>⚖️ Compare Teams & Players</h2>
+                
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="compareTeams">Compare Teams</button>
+                    <button class="tab-btn" data-tab="comparePlayers">Compare Players</button>
+                </div>
+
+                <!-- Compare Teams (FR8) -->
+                <div id="compareTeamsTab" class="tab-content active">
+                    <div class="compare-inputs">
+                        <div class="compare-input-group">
+                            <label>Team A</label>
+                            <input type="number" id="teamAId" placeholder="Team ID">
+                            <button onclick="searchEntity('team')" class="btn-secondary">Search</button>
+                        </div>
+                        <div class="compare-vs">VS</div>
+                        <div class="compare-input-group">
+                            <label>Team B</label>
+                            <input type="number" id="teamBId" placeholder="Team ID">
+                            <button onclick="searchEntity('team')" class="btn-secondary">Search</button>
+                        </div>
+                    </div>
+                    <button onclick="compareTeams()" class="btn-primary">Compare Teams</button>
+                    <div id="teamComparisonResult" class="comparison-result"></div>
+                </div>
+
+                <!-- Compare Players (FR8) -->
+                <div id="comparePlayersTab" class="tab-content">
+                    <div class="compare-inputs">
+                        <div class="compare-input-group">
+                            <label>Player A</label>
+                            <input type="number" id="playerAId" placeholder="Player ID">
+                        </div>
+                        <div class="compare-vs">VS</div>
+                        <div class="compare-input-group">
+                            <label>Player B</label>
+                            <input type="number" id="playerBId" placeholder="Player ID">
+                        </div>
+                    </div>
+                    <button onclick="comparePlayers()" class="btn-primary">Compare Players</button>
+                    <div id="playerComparisonResult" class="comparison-result"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Favourites Page (FR2) -->
+        <section id="favouritesPage" class="page">
+            <div class="container">
+                <h2>⭐ Manage Favourites</h2>
+                <p class="subtitle">Maximum: 5 teams, 25 players, 3 leagues</p>
+
+                <div class="favourites-section">
+                    <h3>Favourite Teams (Max 5)</h3>
+                    <div id="favouriteTeamsList" class="favourites-list"></div>
+                    <div class="add-favourite">
+                        <input type="number" id="newTeamId" placeholder="Team ID">
+                        <button onclick="addFavouriteTeam()" class="btn-secondary">Add Team</button>
+                    </div>
+                </div>
+
+                <div class="favourites-section">
+                    <h3>Favourite Players (Max 25)</h3>
+                    <div id="favouritePlayersList" class="favourites-list"></div>
+                    <div class="add-favourite">
+                        <input type="number" id="newPlayerId" placeholder="Player ID">
+                        <button onclick="addFavouritePlayer()" class="btn-secondary">Add Player</button>
+                    </div>
+                </div>
+
+                <div class="favourites-section">
+                    <h3>Favourite Leagues (Max 3)</h3>
+                    <div id="favouriteLeaguesList" class="favourites-list"></div>
+                    <div class="add-favourite">
+                        <select id="newLeagueCode">
+                            <option value="">Select League</option>
+                            <option value="PL">Premier League</option>
+                            <option value="CL">Champions League</option>
+                            <option value="BL1">Bundesliga</option>
+                            <option value="SA">Serie A</option>
+                            <option value="PD">La Liga</option>
+                            <option value="FL1">Ligue 1</option>
+                        </select>
+                        <button onclick="addFavouriteLeague()" class="btn-secondary">Add League</button>
+                    </div>
+                </div>
+
+                <button onclick="saveFavourites()" class="btn-primary">Save All Favourites</button>
+            </div>
+        </section>
+
+        <!-- Settings Page (FR9) -->
+        <section id="settingsPage" class="page">
+            <div class="container">
+                <h2>⚙️ Settings</h2>
+
+                <div class="settings-section">
+                    <h3>Notification Settings</h3>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="goalsNotifications">
+                            Goals Notifications
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="matchStartNotifications">
+                            Match Start Notifications
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="matchEndNotifications">
+                            Match End Notifications
+                        </label>
+                    </div>
+                    <button onclick="saveNotificationSettings()" class="btn-primary">Save Settings</button>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Account</h3>
+                    <p>Username: <strong id="settingsUsername"></strong></p>
+                    <button class="btn-secondary">Change Password</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Match Detail Modal -->
+        <div id="matchModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeMatchModal()">&times;</span>
+                <div id="matchDetailContent"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>&copy; 2025 PrimeScore. All rights reserved.</p>
+        <p>Data provided by Football-Data.org API</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
