@@ -1,0 +1,36 @@
+<section id="settingsPage" class="page">
+  <div class="container">
+    <h2>Settings</h2>
+
+    <div class="section">
+      <h3>Notifications</h3>
+      <div class="setting-item"><label><input type="checkbox" id="goalsNotifications" /> Goal notifications</label></div>
+      <div class="setting-item"><label><input type="checkbox" id="matchStartNotifications" /> Match start notifications</label></div>
+      <div class="setting-item"><label><input type="checkbox" id="matchEndNotifications" /> Match end notifications</label></div>
+      <div class="setting-item"><label><input type="checkbox" id="favTeamNotifications" /> Favourite team notifications</label></div>
+      <div class="setting-item"><label><input type="checkbox" id="favPlayerNotifications" /> Favourite player notifications</label></div>
+      <button onclick="saveNotificationSettings()" class="btn-primary">Save Notifications</button>
+      <p class="error-message" id="settingsMessage"></p>
+    </div>
+
+    <div class="section">
+      <h3>Change Password</h3>
+      <div class="form-group">
+        <label for="currentPassword">Current password</label>
+        <div class="password-field">
+          <input type="password" id="currentPassword" />
+          <button type="button" class="toggle-password" onclick="togglePasswordVisibility('currentPassword')">Show</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="newPassword">New password</label>
+        <div class="password-field">
+          <input type="password" id="newPassword" />
+          <button type="button" class="toggle-password" onclick="togglePasswordVisibility('newPassword')">Show</button>
+        </div>
+      </div>
+      <button onclick="PrimeScoreApp.changePassword()" class="btn-primary">Change Password</button>
+      <p class="error-message" id="passwordMsg"></p>
+    </div>
+  </div>
+</section>

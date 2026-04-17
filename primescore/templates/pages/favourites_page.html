@@ -1,0 +1,41 @@
+<section id="favouritesPage" class="page">
+  <div class="container">
+    <h2>Favourites</h2>
+
+    <div class="section">
+      <h3>Current favourites</h3>
+      <div class="cards-grid">
+        <div class="card">
+          <h4>Teams</h4>
+          <div id="favTeamsList"></div>
+        </div>
+        <div class="card">
+          <h4>Players</h4>
+          <div id="favPlayersList"></div>
+        </div>
+        <div class="card">
+          <h4>Leagues</h4>
+          <div id="favLeaguesList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Edit favourites</h3>
+      <div class="form-group">
+        <label for="favTeams">Teams (comma separated numeric IDs)</label>
+        <input type="text" id="favTeams" placeholder="40, 42" />
+      </div>
+      <div class="form-group">
+        <label for="favPlayers">Players (comma separated numeric IDs)</label>
+        <input type="text" id="favPlayers" placeholder="276, 874" />
+      </div>
+      <div class="form-group">
+        <label for="favLeagues">Leagues (comma separated codes)</label>
+        <input type="text" id="favLeagues" placeholder="PL, CL" />
+      </div>
+      <button onclick="PrimeScoreApp.saveFavourites()" class="btn-primary">Save Favourites</button>
+      <p class="error-message" id="favMsg"></p>
+    </div>
+  </div>
+</section>
