@@ -12,13 +12,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import config as cfg
 
-from routes.auth          import auth_bp
-from routes.favourites    import favourites_bp
-from routes.matches       import matches_bp
-from routes.stats         import stats_bp
-from routes.notifications import notifications_bp
-from routes.utils         import utils_bp
-from routes.profile       import profile_bp
+from routes.authentication_routes import auth_bp
+from routes.favourites_routes import favourites_bp
+from routes.match_routes import matches_bp
+from routes.statistics_routes import stats_bp
+from routes.notification_routes import notifications_bp
+from routes.lookup_routes import utils_bp
+from routes.profile_routes import profile_bp
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +42,7 @@ def create_app():
 
     @app.route("/")
     def index():
-        return render_template("dashboard.html")
+        return render_template("dashboard_page.html")
 
     @app.errorhandler(404)
     def not_found(e):
