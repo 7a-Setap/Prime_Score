@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS user_favourites (
     favourite_teams   INTEGER[]    DEFAULT '{}',
     favourite_players INTEGER[]    DEFAULT '{}',
     favourite_leagues VARCHAR(10)[] DEFAULT '{}',
+    favourite_team_names TEXT[] DEFAULT '{}',
+    favourite_player_names TEXT[] DEFAULT '{}',
+    favourite_league_names TEXT[] DEFAULT '{}',
     updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     -- Enforce FR2 limits at the database level
     CONSTRAINT max_teams   CHECK (array_length(favourite_teams,   1) <= 5  OR favourite_teams   IS NULL),

@@ -1,0 +1,596 @@
+"""Favourites routes and home-page data."""
+
+import logging
+import random
+from datetime import datetime, timedelta, timezone
+
+from flask import Blueprint, jsonify, request, session
+
+from config import CURRENT_SEASON
+from db.connection import DBContext
+from routes.lookup_routes import (
+    LEAGUE_CODE_TO_ID,
+    LEAGUE_CODE_TO_NAME,
+    is_rate_limited_payload,
+    resolve_league_reference,
+    resolve_player_reference,
+    resolve_team_reference,
+)
+from services.football_api_client import call_football_api, format_standings, is_rate_limited_response
+
+favourites_bp = Blueprint("favourites", __name__)
+logger = logging.getLogger(__name__)
+
+DISPLAY_COLUMNS_READY = False
+
+
+def _today_string():
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _date_offset_string(days):
+    return (datetime.now(timezone.utc).date() + timedelta(days=days)).isoformat()
+
+
+def _map_fixture(match):
+    fixture = match.get("fixture", {})
+    teams = match.get("teams", {})
+    goals = match.get("goals", {})
+    league = match.get("league", {})
+    status = fixture.get("status") or {}
+
+    return {
+        "match_id": fixture.get("id"),
+        "home_team": (teams.get("home") or {}).get("name"),
+        "away_team": (teams.get("away") or {}).get("name"),
+        "home_score": goals.get("home"),
+        "away_score": goals.get("away"),
+        "status": status.get("long"),
+        "minute": status.get("elapsed"),
+        "match_date": fixture.get("date"),
+        "date": fixture.get("date"),
+        "competition": league.get("name"),
+    }
+
+
+def _empty_home_payload(selected_league=None):
+    return {
+        "live_matches": [],
+        "recent_results": [],
+        "upcoming_fixtures": [],
+        "league_tables": [],
+        "selected_league": selected_league
+        or {
+            "id": LEAGUE_CODE_TO_ID["PL"],
+            "code": "PL",
+            "name": LEAGUE_CODE_TO_NAME["PL"],
+        },
+        "favourite_player_stats": [],
+    }
+
+
+def _ensure_display_columns():
+    global DISPLAY_COLUMNS_READY
+
+    if DISPLAY_COLUMNS_READY:
+        return
+
+    with DBContext() as (_, cursor):
+        cursor.execute(
+            "ALTER TABLE user_favourites ADD COLUMN IF NOT EXISTS favourite_team_names TEXT[] DEFAULT '{}'"
+        )
+        cursor.execute(
+            "ALTER TABLE user_favourites ADD COLUMN IF NOT EXISTS favourite_player_names TEXT[] DEFAULT '{}'"
+        )
+        cursor.execute(
+            "ALTER TABLE user_favourites ADD COLUMN IF NOT EXISTS favourite_league_names TEXT[] DEFAULT '{}'"
+        )
+
+    DISPLAY_COLUMNS_READY = True
+
+
+def _get_saved_favourites_row(user_id):
+    try:
+        _ensure_display_columns()
+        with DBContext(dict_cursor=True) as (_, cursor):
+            cursor.execute(
+                """
+                SELECT
+                    favourite_teams,
+                    favourite_players,
+                    favourite_leagues,
+                    favourite_team_names,
+                    favourite_player_names,
+                    favourite_league_names
+                FROM user_favourites
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            return cursor.fetchone()
+    except Exception:
+        logger.exception("favourites lookup failed")
+        return None
+
+
+def _clean_reference_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        items = value
+    else:
+        items = str(value).split(",")
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _split_player_reference(reference):
+    value = str(reference or "").strip()
+    if not value:
+        return "", ""
+
+    for separator in (" - ", " @ ", " | "):
+        if separator in value:
+            player_name, team_name = value.split(separator, 1)
+            return player_name.strip(), team_name.strip()
+
+    return value, ""
+
+
+def _resolve_team_entries(references):
+    team_ids = []
+    team_names = []
+
+    for reference in references:
+        team = resolve_team_reference(reference)
+        if is_rate_limited_payload(team):
+            return team
+        if not team:
+            return {"error": f'Team "{reference}" was not found.'}
+        if team["id"] in team_ids:
+            continue
+        team_ids.append(int(team["id"]))
+        team_names.append(team["name"])
+
+    return {"ids": team_ids, "names": team_names}
+
+
+def _resolve_player_entries(references):
+    player_ids = []
+    player_names = []
+
+    for reference in references:
+        player_name, team_name = _split_player_reference(reference)
+
+        if not player_name:
+            continue
+
+        player = resolve_player_reference(player_name, team_reference=team_name or None)
+        if is_rate_limited_payload(player):
+            return player
+        if not player:
+            if not team_name and not player_name.isdigit():
+                return {"error": f'Player "{reference}" was not found. Use "Player Name - Team Name".'}
+            return {"error": f'Player "{reference}" was not found.'}
+        if player["id"] in player_ids:
+            continue
+        player_ids.append(int(player["id"]))
+        player_names.append(player["name"])
+
+    return {"ids": player_ids, "names": player_names}
+
+
+def _resolve_league_entries(references):
+    league_codes = []
+    league_names = []
+
+    for reference in references:
+        league = resolve_league_reference(reference)
+        if is_rate_limited_payload(league):
+            return league
+        if not league:
+            return {"error": f'League "{reference}" was not found.'}
+        if league["code"] in league_codes:
+            continue
+        league_codes.append(str(league["code"]))
+        league_names.append(league["name"])
+
+    return {"codes": league_codes, "names": league_names}
+
+
+def _display_favourites(row):
+    team_names = row.get("favourite_team_names") or []
+    player_names = row.get("favourite_player_names") or []
+    league_names = row.get("favourite_league_names") or []
+    league_codes = row.get("favourite_leagues") or []
+
+    if not league_names and league_codes:
+        league_names = [LEAGUE_CODE_TO_NAME.get(str(code), str(code)) for code in league_codes]
+
+    return {
+        "favourite_teams": team_names or [str(team_id) for team_id in (row.get("favourite_teams") or [])],
+        "favourite_players": player_names or [str(player_id) for player_id in (row.get("favourite_players") or [])],
+        "favourite_leagues": league_names,
+        "favourite_team_ids": row.get("favourite_teams") or [],
+        "favourite_player_ids": row.get("favourite_players") or [],
+        "favourite_league_codes": league_codes,
+    }
+
+
+def _get_home_league_context(preferred_reference=None, favourites_row=None):
+    default_context = {
+        "id": LEAGUE_CODE_TO_ID["PL"],
+        "code": "PL",
+        "name": LEAGUE_CODE_TO_NAME["PL"],
+    }
+
+    if preferred_reference:
+        preferred_league = resolve_league_reference(preferred_reference)
+        if is_rate_limited_payload(preferred_league):
+            return default_context
+        if preferred_league:
+            return {
+                "id": preferred_league["id"],
+                "code": str(preferred_league.get("code", preferred_league["id"])),
+                "name": preferred_league.get("name", default_context["name"]),
+            }
+
+    if favourites_row is not None:
+        row = favourites_row
+    elif "user_id" not in session:
+        return default_context
+    else:
+        row = _get_saved_favourites_row(session["user_id"])
+
+    if not row:
+        return default_context
+
+    favourite_codes = row.get("favourite_leagues") or []
+    favourite_names = row.get("favourite_league_names") or []
+
+    for league_code in reversed(favourite_codes):
+        code = str(league_code or "").upper()
+        if code in LEAGUE_CODE_TO_ID:
+            return {
+                "id": LEAGUE_CODE_TO_ID[code],
+                "code": code,
+                "name": LEAGUE_CODE_TO_NAME.get(code, code),
+            }
+
+    for league_reference in list(reversed(favourite_codes)) + list(reversed(favourite_names)):
+        resolved_league = resolve_league_reference(league_reference)
+        if is_rate_limited_payload(resolved_league):
+            return default_context
+        if resolved_league:
+            return {
+                "id": resolved_league["id"],
+                "code": str(resolved_league.get("code", resolved_league["id"])),
+                "name": resolved_league.get("name", default_context["name"]),
+            }
+
+    return default_context
+
+
+def _match_involves_team_ids(match, team_ids):
+    home_team = (match.get("teams", {}).get("home") or {}).get("id")
+    away_team = (match.get("teams", {}).get("away") or {}).get("id")
+    return home_team in team_ids or away_team in team_ids
+
+
+def _match_involves_league_ids(match, league_ids):
+    return (match.get("league") or {}).get("id") in league_ids
+
+
+def _dedupe_and_slice(matches, *, limit=5, reverse=False, randomize=False):
+    items = list(matches)
+    if randomize:
+        random.shuffle(items)
+    else:
+        items.sort(key=lambda match: match.get("date") or match.get("match_date") or "", reverse=reverse)
+
+    deduped = []
+    seen_match_ids = set()
+    for match in items:
+        match_id = match.get("match_id")
+        dedupe_key = match_id or (
+            match.get("home_team"),
+            match.get("away_team"),
+            match.get("date") or match.get("match_date"),
+        )
+        if dedupe_key in seen_match_ids:
+            continue
+        seen_match_ids.add(dedupe_key)
+        deduped.append(match)
+        if len(deduped) >= limit:
+            break
+
+    return deduped
+
+
+def _load_filtered_live_matches(team_ids=None, league_ids=None):
+    live_matches = call_football_api("fixtures", {"live": "all"})
+    if is_rate_limited_response(live_matches) or not live_matches or not live_matches.get("response"):
+        return []
+
+    response_items = live_matches["response"]
+    if team_ids:
+        response_items = [match for match in response_items if _match_involves_team_ids(match, team_ids)]
+    elif league_ids:
+        response_items = [match for match in response_items if _match_involves_league_ids(match, league_ids)]
+
+    mapped_matches = [_map_fixture(match) for match in response_items]
+    return _dedupe_and_slice(mapped_matches, limit=5, randomize=not (team_ids or league_ids))
+
+
+def _load_league_matches(league_id, status, *, limit=5, randomize=False):
+    data = call_football_api(
+        "fixtures",
+        {
+            "league": league_id,
+            "season": CURRENT_SEASON,
+            "status": status,
+        },
+    )
+    if is_rate_limited_response(data):
+        return []
+
+    mapped_matches = [_map_fixture(match) for match in (data or {}).get("response", [])]
+    return _dedupe_and_slice(
+        mapped_matches,
+        limit=limit,
+        reverse=status != "NS",
+        randomize=randomize,
+    )
+
+
+def _load_team_matches(team_ids, status):
+    aggregated_matches = []
+    for team_id in team_ids:
+        data = call_football_api(
+            "fixtures",
+            {
+                "team": team_id,
+                "season": CURRENT_SEASON,
+                "status": status,
+            },
+        )
+        if is_rate_limited_response(data):
+            break
+        aggregated_matches.extend(_map_fixture(match) for match in (data or {}).get("response", []))
+
+    return _dedupe_and_slice(aggregated_matches, limit=5, reverse=status != "NS")
+
+
+def _ordered_league_contexts(home_league, favourite_codes):
+    if not favourite_codes:
+        return [home_league]
+
+    ordered_codes = []
+    selected_code = str(home_league.get("code", "")).upper()
+    if selected_code and selected_code in favourite_codes:
+        ordered_codes.append(selected_code)
+
+    for league_code in favourite_codes:
+        code = str(league_code or "").upper()
+        if code not in ordered_codes and code in LEAGUE_CODE_TO_ID:
+            ordered_codes.append(code)
+
+    ordered_contexts = []
+    for code in ordered_codes:
+        ordered_contexts.append(
+            {
+                "id": LEAGUE_CODE_TO_ID[code],
+                "code": code,
+                "name": LEAGUE_CODE_TO_NAME.get(code, code),
+            }
+        )
+
+    return ordered_contexts or [home_league]
+
+
+def _load_league_tables(league_contexts):
+    league_tables = []
+    for league_context in league_contexts:
+        standings = call_football_api("standings", {"league": league_context["id"], "season": CURRENT_SEASON})
+        if is_rate_limited_response(standings):
+            break
+
+        formatted = format_standings(standings)
+        if formatted.get("standings"):
+            league_tables.append(formatted)
+
+    return league_tables
+
+
+def _format_favourite_player_stat(player_id, fallback_name=""):
+    data = call_football_api(
+        "players",
+        {
+            "id": player_id,
+            "season": CURRENT_SEASON,
+        },
+    )
+    if is_rate_limited_response(data) or not data or not data.get("response"):
+        return None
+
+    player_data = data["response"][0]
+    player = player_data.get("player", {})
+    statistics = (player_data.get("statistics") or [{}])[0]
+
+    return {
+        "player_id": player_id,
+        "player_name": player.get("name") or fallback_name or f"Player {player_id}",
+        "photo": player.get("photo", ""),
+        "current_team": (statistics.get("team") or {}).get("name", ""),
+        "position": (statistics.get("games") or {}).get("position", ""),
+        "statistics": {
+            "goals": (statistics.get("goals") or {}).get("total", 0) or 0,
+            "assists": (statistics.get("goals") or {}).get("assists", 0) or 0,
+            "appearances": (statistics.get("games") or {}).get("appearances", 0) or 0,
+            "minutes": (statistics.get("games") or {}).get("minutes", 0) or 0,
+            "rating": (statistics.get("games") or {}).get("rating", "") or "",
+            "yellow_cards": (statistics.get("cards") or {}).get("yellow", 0) or 0,
+            "red_cards": (statistics.get("cards") or {}).get("red", 0) or 0,
+        },
+    }
+
+
+@favourites_bp.route("/home-screen", methods=["GET"])
+def get_home_screen():
+    preferred_league_reference = request.args.get("league")
+    favourites_row = _get_saved_favourites_row(session["user_id"]) if "user_id" in session else None
+    home_league = _get_home_league_context(
+        preferred_reference=preferred_league_reference,
+        favourites_row=favourites_row,
+    )
+    home_data = _empty_home_payload(selected_league=home_league)
+
+    favourite_team_ids = [int(team_id) for team_id in (favourites_row or {}).get("favourite_teams", []) or []]
+    favourite_player_ids = [int(player_id) for player_id in (favourites_row or {}).get("favourite_players", []) or []]
+    favourite_player_names = (favourites_row or {}).get("favourite_player_names") or []
+    favourite_league_codes = [
+        str(league_code).upper()
+        for league_code in ((favourites_row or {}).get("favourite_leagues") or [])
+        if str(league_code).upper() in LEAGUE_CODE_TO_ID
+    ]
+
+    has_personalised_home = bool(favourite_team_ids or favourite_player_ids or favourite_league_codes)
+
+    if favourite_league_codes:
+        home_data["league_tables"] = _load_league_tables([home_league])
+    elif not has_personalised_home:
+        home_data["league_tables"] = _load_league_tables([home_league])
+
+    if favourite_team_ids:
+        home_data["live_matches"] = _load_filtered_live_matches(team_ids=set(favourite_team_ids))
+        home_data["upcoming_fixtures"] = _load_team_matches(favourite_team_ids, "NS")
+        home_data["recent_results"] = _load_team_matches(favourite_team_ids, "FT-AET-PEN")
+    elif favourite_league_codes:
+        selected_league_id = home_league["id"]
+        home_data["live_matches"] = _load_filtered_live_matches(league_ids={selected_league_id})
+        home_data["upcoming_fixtures"] = _load_league_matches(selected_league_id, "NS")
+        home_data["recent_results"] = _load_league_matches(selected_league_id, "FT-AET-PEN")
+    elif not has_personalised_home:
+        home_data["live_matches"] = _load_filtered_live_matches()
+        home_data["upcoming_fixtures"] = _load_league_matches(home_league["id"], "NS", limit=5, randomize=True)
+        home_data["recent_results"] = _load_league_matches(home_league["id"], "FT-AET-PEN", limit=5, randomize=True)
+
+    for index, player_id in enumerate(favourite_player_ids):
+        favourite_player_stat = _format_favourite_player_stat(
+            player_id,
+            fallback_name=favourite_player_names[index] if index < len(favourite_player_names) else "",
+        )
+        if not favourite_player_stat:
+            continue
+        home_data["favourite_player_stats"].append(favourite_player_stat)
+
+    return jsonify(home_data), 200
+
+
+@favourites_bp.route("/favourites", methods=["GET"])
+def get_favourites():
+    empty_response = {
+        "favourite_teams": [],
+        "favourite_players": [],
+        "favourite_leagues": [],
+        "favourite_team_ids": [],
+        "favourite_player_ids": [],
+        "favourite_league_codes": [],
+    }
+
+    if "user_id" not in session:
+        return jsonify(empty_response), 200
+
+    row = _get_saved_favourites_row(session["user_id"])
+
+    if not row:
+        return jsonify(empty_response), 200
+
+    return jsonify(_display_favourites(row)), 200
+
+
+@favourites_bp.route("/favourites", methods=["POST"])
+def update_favourites():
+    if "user_id" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    data = request.get_json(silent=True) or {}
+    team_references = _clean_reference_list(data.get("favourite_teams", []))
+    player_references = _clean_reference_list(data.get("favourite_players", []))
+    league_references = _clean_reference_list(data.get("favourite_leagues", []))
+
+    if len(team_references) > 5:
+        return jsonify({"error": "You can save up to 5 favourite teams."}), 400
+    if len(player_references) > 10:
+        return jsonify({"error": "You can save up to 10 favourite players."}), 400
+    if len(league_references) > 3:
+        return jsonify({"error": "You can save up to 3 favourite leagues."}), 400
+
+    resolved_teams = _resolve_team_entries(team_references)
+    if is_rate_limited_payload(resolved_teams):
+        return jsonify({"error": "Rate limited by API-Football. Please retry shortly."}), 429
+    if resolved_teams.get("error"):
+        return jsonify({"error": resolved_teams["error"]}), 404
+
+    resolved_players = _resolve_player_entries(player_references)
+    if is_rate_limited_payload(resolved_players):
+        return jsonify({"error": "Rate limited by API-Football. Please retry shortly."}), 429
+    if resolved_players.get("error"):
+        return jsonify({"error": resolved_players["error"]}), 404
+
+    resolved_leagues = _resolve_league_entries(league_references)
+    if is_rate_limited_payload(resolved_leagues):
+        return jsonify({"error": "Rate limited by API-Football. Please retry shortly."}), 429
+    if resolved_leagues.get("error"):
+        return jsonify({"error": resolved_leagues["error"]}), 404
+
+    try:
+        _ensure_display_columns()
+        with DBContext() as (_, cursor):
+            cursor.execute(
+                """
+                INSERT INTO user_favourites (
+                    user_id,
+                    favourite_teams,
+                    favourite_players,
+                    favourite_leagues,
+                    favourite_team_names,
+                    favourite_player_names,
+                    favourite_league_names,
+                    updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    favourite_teams = EXCLUDED.favourite_teams,
+                    favourite_players = EXCLUDED.favourite_players,
+                    favourite_leagues = EXCLUDED.favourite_leagues,
+                    favourite_team_names = EXCLUDED.favourite_team_names,
+                    favourite_player_names = EXCLUDED.favourite_player_names,
+                    favourite_league_names = EXCLUDED.favourite_league_names,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (
+                    session["user_id"],
+                    resolved_teams["ids"],
+                    resolved_players["ids"],
+                    resolved_leagues["codes"],
+                    resolved_teams["names"],
+                    resolved_players["names"],
+                    resolved_leagues["names"],
+                    datetime.now(),
+                ),
+            )
+    except Exception:
+        logger.exception("update_favourites DB error")
+        return jsonify({"error": "Could not save favourites"}), 500
+
+    return jsonify(
+        {
+            "message": "Saved",
+            "favourite_teams": resolved_teams["names"],
+            "favourite_players": resolved_players["names"],
+            "favourite_leagues": resolved_leagues["names"],
+            "favourite_team_ids": resolved_teams["ids"],
+            "favourite_player_ids": resolved_players["ids"],
+            "favourite_league_codes": resolved_leagues["codes"],
+        }
+    ), 200

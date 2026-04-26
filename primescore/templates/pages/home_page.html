@@ -15,6 +15,16 @@
       <div id="summaryContent" class="summary-content"></div>
     </div>
 
+    <div class="section" id="favouritePlayersSection" style="display:none">
+      <div class="section-header">
+        <div>
+          <h3>Favourite Players</h3>
+          <p class="subtitle">Quick stats for the players you follow most.</p>
+        </div>
+      </div>
+      <div id="favouritePlayersHome" class="cards-grid"></div>
+    </div>
+
     <div class="section">
       <div class="section-header">
         <h3>Live Matches</h3>
@@ -34,7 +44,17 @@
     </div>
 
     <div class="section">
-      <h3>League Table</h3>
+      <div class="section-header">
+        <div>
+          <h3>League Table</h3>
+          <p id="homeLeagueName" class="subtitle">Premier League</p>
+        </div>
+        <div class="league-switcher" id="homeLeagueSwitcher">
+          <button id="homeLeaguePrev" type="button" class="btn-secondary switch-btn" onclick="cycleHomeLeague(-1)" aria-label="Previous favourite league">&larr;</button>
+          <span id="homeLeaguePosition" class="league-switcher-label">Default league</span>
+          <button id="homeLeagueNext" type="button" class="btn-secondary switch-btn" onclick="cycleHomeLeague(1)" aria-label="Next favourite league">&rarr;</button>
+        </div>
+      </div>
       <div id="leagueTablesHome" class="league-tables-grid"></div>
     </div>
   </div>
