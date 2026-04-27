@@ -1,0 +1,27 @@
+UPCOMING FIXTURES FIX - CHANGE LOG
+Date: 27 April 2026 | Total changes: 6
+
+ORIGINAL CHANGES
+----------------
+- Line 5 (favourites.py | imports): Added timedelta to datetime import
+    FROM: from datetime import datetime
+    TO:   from datetime import datetime, timedelta
+
+- Lines 55–57 (favourites.py | get_home_screen()): Replaced season/status/league query with date-based query
+    FROM: call_football_api('fixtures', {'league': 39, 'season': CURRENT_SEASON, 'status': 'NS'})
+    TO:   tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+          call_football_api('fixtures', {'date': tomorrow})
+
+- Line 3 (matches.py | imports): Added datetime import
+    FROM: (no datetime import)
+    TO:   import datetime as dt
+
+- Lines 84–89 (matches.py | get_fixtures()): Replaced season/status/league query with date-based query
+    FROM: params = {'season': CURRENT_SEASON, 'status': 'NS', 'league': _resolve_league_id(...)}
+    TO:   tomorrow = (dt.datetime.now() + dt.timedelta(days=1)).strftime("%Y-%m-%d")
+          params = {'date': tomorrow}
+
+- Line 95 (matches.py | get_fixtures()): Increased result limit
+    FROM: matches[:5]
+    TO:   matches[:10]
+
