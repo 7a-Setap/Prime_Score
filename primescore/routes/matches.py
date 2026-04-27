@@ -1,5 +1,7 @@
 """Match routes used by the current PrimeScore interface."""
 
+import datetime as dt
+
 from flask import Blueprint, jsonify, request, session
 
 from config import CURRENT_SEASON
@@ -79,22 +81,18 @@ def get_fixtures():
     if auth_error:
         return auth_error
 
-    params = {
-        "season": CURRENT_SEASON,
-        "status": "NS",
-        "league": _resolve_league_id(request.args.get("league_id")),
-    }
+    tomorrow = (dt.datetime.now() + dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    params = {"date": tomorrow}
 
     team_id = request.args.get("team_id")
     if team_id:
-        params.pop("league", None)
         params["team"] = team_id
 
     data = call_football_api("fixtures", params)
     matches = [_map_match(match) for match in (data or {}).get("response", [])]
     matches.sort(key=lambda match: match.get("date") or "")
 
-    return jsonify({"fixtures": matches[:5]}), 200
+    return jsonify({"fixtures": matches[:10]}), 200
 
 
 @matches_bp.route("/results", methods=["GET"])

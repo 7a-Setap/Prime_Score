@@ -2,7 +2,7 @@
 
 import logging
 from flask import Blueprint, request, jsonify, session
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from db.connection import DBContext
 from services.api import call_football_api, format_standings
@@ -52,10 +52,9 @@ def get_home_screen():
     if live_resp and live_resp.get('response'):
         home_data['live_matches'] = [_map_fixture(m) for m in live_resp['response']][:5]
 
-    # Upcoming fixtures: Premier League, current season, not started
-    upcoming_resp = call_football_api('fixtures', {
-        'league': 39, 'season': CURRENT_SEASON, 'status': 'NS'
-    })
+    # Upcoming fixtures: query by tomorrow's date (free plan supports date filter)
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+    upcoming_resp = call_football_api('fixtures', {'date': tomorrow})
     if upcoming_resp and upcoming_resp.get('response'):
         upcoming = [_map_fixture(m) for m in upcoming_resp['response']]
         upcoming.sort(key=lambda x: x.get('date') or '')
