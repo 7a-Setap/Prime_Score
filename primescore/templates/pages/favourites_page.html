@@ -22,18 +22,38 @@
 
     <div class="section">
       <h3>Edit favourites</h3>
+
       <div class="form-group">
-        <label for="favTeams">Teams (comma separated numeric IDs)</label>
-        <input type="text" id="favTeams" placeholder="40, 42" />
+        <label>Teams <span style="color:var(--muted);font-weight:400;">(max 5)</span></label>
+        <div class="fav-tags" id="favTeamsTags"></div>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="favTeamsSearch" placeholder="Search for a team…" autocomplete="off" />
+          <div class="autocomplete-suggestions" id="favTeamsSuggestions" style="display:none"></div>
+        </div>
       </div>
+
       <div class="form-group">
-        <label for="favPlayers">Players (comma separated numeric IDs)</label>
-        <input type="text" id="favPlayers" placeholder="276, 874" />
+        <label>Players <span style="color:var(--muted);font-weight:400;">(max 10)</span></label>
+        <div class="fav-tags" id="favPlayersTags"></div>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="favPlayersTeamSearch" placeholder="Search a team to browse their players…" autocomplete="off" />
+          <div class="autocomplete-suggestions" id="favPlayersTeamSuggestions" style="display:none"></div>
+        </div>
+        <div id="favPlayersSquad" style="display:none">
+          <p id="favPlayersSquadLabel" class="squad-label"></p>
+          <div id="favPlayersSquadList" class="squad-list"></div>
+        </div>
       </div>
+
       <div class="form-group">
-        <label for="favLeagues">Leagues (comma separated codes)</label>
-        <input type="text" id="favLeagues" placeholder="PL, CL" />
+        <label>Leagues <span style="color:var(--muted);font-weight:400;">(max 3)</span></label>
+        <div class="fav-tags" id="favLeaguesTags"></div>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="favLeaguesSearch" placeholder="Search for a league…" autocomplete="off" />
+          <div class="autocomplete-suggestions" id="favLeaguesSuggestions" style="display:none"></div>
+        </div>
       </div>
+
       <button onclick="PrimeScoreApp.saveFavourites()" class="btn-primary">Save Favourites</button>
       <p class="error-message" id="favMsg"></p>
     </div>

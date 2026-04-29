@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 
 from flask import Blueprint, jsonify, request
 
+from config import CURRENT_SEASON
 from db.connection import get_db_connection, release_db_connection
 from services.api import call_football_api
 
@@ -57,11 +58,8 @@ def search():
     results = {"teams": [], "competitions": []}
 
     if search_type in ("all", "teams"):
-        team_params = {"search": query}
-        if league_filter:
-            team_params["league"] = league_filter
-
-        team_data = call_football_api("teams", team_params)
+        # API-Football does not allow 'league' alongside 'search' for teams
+        team_data = call_football_api("teams", {"search": query})
         rate_limit = _rate_limit_response(team_data)
         if rate_limit:
             return rate_limit
@@ -158,3 +156,86 @@ def resolve_league():
         return jsonify({"error": "League not found"}), 404
 
     return jsonify({"id": best_match.get("id"), "name": best_match.get("name")}), 200
+
+
+@utils_bp.route("/teams/<int:team_id>/players", methods=["GET"])
+def get_team_players(team_id):
+    data = None
+    for season in (CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2):
+        data = call_football_api("players", {"team": team_id, "season": season})
+        if data and data.get("response"):
+            break
+
+    rate_limit = _rate_limit_response(data)
+    if rate_limit:
+        return rate_limit
+
+    players = []
+    for item in (data or {}).get("response", []):
+        player = item.get("player", {})
+        stats = (item.get("statistics") or [{}])[0]
+        players.append({
+            "id": player.get("id"),
+            "name": player.get("name"),
+            "position": (stats.get("games") or {}).get("position"),
+        })
+    return jsonify({"players": players}), 200
+
+
+@utils_bp.route("/resolve/team-by-id", methods=["GET"])
+def resolve_team_by_id():
+    team_id = (request.args.get("id") or "").strip()
+    if not team_id:
+        return jsonify({"error": "id required"}), 400
+
+    data = call_football_api("teams", {"id": team_id})
+    rate_limit = _rate_limit_response(data)
+    if rate_limit:
+        return rate_limit
+
+    if not data or not data.get("response"):
+        return jsonify({"error": "Team not found"}), 404
+
+    team = data["response"][0].get("team", {})
+    return jsonify({"id": team.get("id"), "name": team.get("name"), "crest": team.get("logo")}), 200
+
+
+@utils_bp.route("/resolve/player-by-id", methods=["GET"])
+def resolve_player_by_id():
+    player_id = (request.args.get("id") or "").strip()
+    if not player_id:
+        return jsonify({"error": "id required"}), 400
+
+    data = None
+    for season in (CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2):
+        data = call_football_api("players", {"id": player_id, "season": season})
+        if data and data.get("response"):
+            break
+
+    rate_limit = _rate_limit_response(data)
+    if rate_limit:
+        return rate_limit
+
+    if not data or not data.get("response"):
+        return jsonify({"error": "Player not found"}), 404
+
+    player = data["response"][0].get("player", {})
+    return jsonify({"id": player.get("id"), "name": player.get("name")}), 200
+
+
+@utils_bp.route("/resolve/league-by-id", methods=["GET"])
+def resolve_league_by_id():
+    league_id = (request.args.get("id") or "").strip()
+    if not league_id:
+        return jsonify({"error": "id required"}), 400
+
+    data = call_football_api("leagues", {"id": league_id})
+    rate_limit = _rate_limit_response(data)
+    if rate_limit:
+        return rate_limit
+
+    if not data or not data.get("response"):
+        return jsonify({"error": "League not found"}), 404
+
+    league = data["response"][0].get("league", {})
+    return jsonify({"id": league.get("id"), "name": league.get("name")}), 200

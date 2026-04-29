@@ -2,8 +2,11 @@
   <div class="container">
     <h2>League Search</h2>
     <div class="form-group">
-      <label for="leagueSearch">League name or code</label>
-      <input type="text" id="leagueSearch" placeholder="Premier League, PL, Bundesliga..." onkeyup="searchLeagues()" />
+      <label for="leagueSearch">Search for a league</label>
+      <div class="autocomplete-wrapper">
+        <input type="text" id="leagueSearch" placeholder="Premier League, Bundesliga, La Liga…" autocomplete="off" />
+        <div class="autocomplete-suggestions" id="leagueSuggestions" style="display:none"></div>
+      </div>
     </div>
     <p class="error-message" id="leagueError"></p>
     <div id="leagueStandingsDisplay"></div>

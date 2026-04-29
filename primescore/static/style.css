@@ -740,6 +740,7 @@ textarea:focus {
   z-index: 15;
   max-height: 240px;
   overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .autocomplete-suggestions div {
@@ -749,6 +750,170 @@ textarea:focus {
 
 .autocomplete-suggestions div:hover {
   background: var(--primary-light);
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.suggestion-item:hover {
+  background: var(--primary-light);
+}
+
+.suggestion-crest {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.suggestion-name {
+  flex: 1;
+  font-size: 0.95rem;
+}
+
+.suggestion-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.suggestion-empty {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.squad-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 8px 0 4px;
+}
+
+.squad-list {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.squad-position-group {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.squad-position-group:last-child {
+  border-bottom: none;
+}
+
+.squad-position-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.squad-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.squad-player-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.squad-player-btn:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.squad-player-btn.squad-player-added {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Comparison table N/A cells — shown when API has no stats for a player */
+.comparison-table td.na {
+  color: var(--text-muted, #888);
+  font-style: italic;
+}
+
+.fav-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  min-height: 0;
+}
+
+.fav-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 6px;
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.fav-tag-crest {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.fav-tag-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fav-tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.fav-tag-remove:hover {
+  background: var(--primary);
+  color: #fff;
 }
 
 .sidebar-link .icon {

@@ -71,35 +71,85 @@ def get_team_statistics(team_id):
     return jsonify(compute_team_stats(team_id, team, matches_data)), 200
 
 
+def _sum_player_stats(statistics_list):
+    total_goals = 0
+    total_assists = 0
+    total_appearances = 0
+    total_yellow = 0
+    total_red = 0
+    position = None
+    current_team = None
+
+    for stat in statistics_list:
+        games = stat.get("games") or {}
+        goals_data = stat.get("goals") or {}
+        cards_data = stat.get("cards") or {}
+
+        apps = (
+            games.get("appearances")
+            or 0
+        )
+        total_appearances += apps
+        total_goals       += goals_data.get("total") or 0
+        total_assists     += goals_data.get("assists") or 0
+        total_yellow      += cards_data.get("yellow") or 0
+        total_red         += cards_data.get("red") or 0
+
+        if not position and games.get("position"):
+            position = games["position"]
+        if not current_team:
+            team_name = (stat.get("team") or {}).get("name")
+            if team_name:
+                current_team = team_name
+
+    return total_goals, total_assists, total_appearances, total_yellow, total_red, position, current_team
+
+
 @stats_bp.route("/players/<int:player_id>/statistics", methods=["GET"])
 def get_player_statistics(player_id):
-    data = call_football_api(
-        "players",
-        {
-            "id": player_id,
-            "season": CURRENT_SEASON,
-        },
-    )
+    best_data = None
+    best_appearances = -1
+    for season in (CURRENT_SEASON, CURRENT_SEASON - 1):
+        candidate = call_football_api("players", {"id": player_id, "season": season})
+        if not candidate or not candidate.get("response"):
+            continue
+        stats_list = candidate["response"][0].get("statistics") or [{}]
+        result = _sum_player_stats(stats_list)
+        appearances = result[2]
+        if best_data is None:
+            best_data = candidate
+        if appearances > best_appearances:
+            best_data = candidate
+            best_appearances = appearances
+        if appearances > 0:
+            break  
 
+    data = best_data
     if not data or not data.get("response"):
         return jsonify({"error": "Player not found"}), 404
 
     player_data = data["response"][0]
     player = player_data.get("player", {})
-    statistics = (player_data.get("statistics") or [{}])[0]
+    statistics_list = player_data.get("statistics") or [{}]
+
+    goals, assists, appearances, yellow_cards, red_cards, position, current_team = (
+        _sum_player_stats(statistics_list)
+    )
+    stats_available = appearances > 0
 
     return jsonify(
         {
             "player_id": player_id,
             "player_name": player.get("name", "Unknown"),
-            "current_team": (statistics.get("team") or {}).get("name"),
-            "position": (statistics.get("games") or {}).get("position"),
+            "current_team": current_team,
+            "position": position,
+            "stats_available": stats_available,
             "statistics": {
-                "goals": (statistics.get("goals") or {}).get("total", 0) or 0,
-                "assists": (statistics.get("goals") or {}).get("assists", 0) or 0,
-                "appearances": (statistics.get("games") or {}).get("appearances", 0) or 0,
-                "yellow_cards": (statistics.get("cards") or {}).get("yellow", 0) or 0,
-                "red_cards": (statistics.get("cards") or {}).get("red", 0) or 0,
+                "goals":        goals,
+                "assists":      assists,
+                "appearances":  appearances,
+                "yellow_cards": yellow_cards,
+                "red_cards":    red_cards,
             },
         }
     ), 200

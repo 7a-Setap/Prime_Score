@@ -1,0 +1,51 @@
+PRIMESCORE CHANGE LOG
+Date: 29 April 2026 | Total changes: 4
+
+================================================================================
+BACKEND
+================================================================================
+
+routes/stats.py
+---------------
+ORIGINAL CHANGES
+- Lines 74-123 (get_player_statistics): Replaced single-entry statistics read
+  (`statistics[0]`) with a full aggregation across all competition entries
+  returned by the API for the season (e.g. Premier League + Champions League +
+  national team competitions etc.)
+- Lines 74-123 (get_player_statistics): Fixed API-Football typo — the API
+  returns "appearences" (misspelled) instead of "appearances"; the old code
+  used the correct spelling so it always got None → 0, causing stats_available
+  to be False for every player regardless of actual data
+
+NEW ADDITIONS
+- Lines 74-110 (_sum_player_stats): New helper function that iterates over all
+  competition entries in a player's statistics list and returns summed totals
+  for goals, assists, appearances, yellow cards, red cards, as well as the
+  player's primary position and current team name; handles both the API typo
+  ("appearences") and the correct spelling ("appearances") for forward
+  compatibility
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/compare.js
+---------------------
+ORIGINAL CHANGES
+- Lines 285-305 (renderComparisonTable): Fixed valueSelector call — was passing
+  only (row.data, key) but player value selector requires a third argument
+  (row) to read row.available; changed to valueSelector(row.data, key, row)
+- Lines 285-305 (renderComparisonTable): Fixed Math.max crash when all values
+  are null — now filters out null/undefined before computing highest value;
+  falls back to 0 when no numeric values exist
+- Lines 285-305 (renderComparisonTable): Cells where valueSelector returns null
+  now render as <td class="na">N/A</td> instead of displaying 0
+
+================================================================================
+FRONTEND — CSS (static/style.css)
+================================================================================
+
+NEW ADDITIONS
+- .comparison-table td.na: Muted italic style for N/A cells in the comparison
+  table; shown when the API has no statistics for a player across all tried
+  seasons

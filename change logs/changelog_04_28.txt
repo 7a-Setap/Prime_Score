@@ -1,0 +1,184 @@
+PRIMESCORE CHANGE LOG
+Date: 28 April 2026 | Total changes: 28
+
+================================================================================
+BACKEND
+================================================================================
+
+routes/utils.py
+---------------
+ORIGINAL CHANGES
+- Line 8 (imports): Added `from config import CURRENT_SEASON`
+- Lines 167-168 (search_players): Changed minimum query length from 3 to 4
+  characters to match API-Football's player-search requirement
+- Lines 205-220 (resolve_player_by_id): Updated to try seasons
+  CURRENT_SEASON+1 → CURRENT_SEASON → CURRENT_SEASON-1 so players whose
+  data lives in a later season are still found
+
+NEW ADDITIONS
+- Lines 164-184 (get_team_players): New endpoint GET /api/teams/<id>/players
+  Returns the squad for a team, iterating over seasons
+  (CURRENT_SEASON+1, CURRENT_SEASON, CURRENT_SEASON-1) until results are found;
+  groups response into {id, name, position} objects
+- Lines 164-184 (search_players): New endpoint GET /api/search/players
+  Searches players by name (requires 4+ characters and a season); removed
+  after confirming the API requires team/league alongside search — replaced
+  by get_team_players
+- Lines 187-202 (resolve_team_by_id): New endpoint GET /api/resolve/team-by-id
+  Resolves a numeric team ID to {id, name, crest} for display
+- Lines 205-220 (resolve_player_by_id): New endpoint GET /api/resolve/player-by-id
+  Resolves a numeric player ID to {id, name} across multiple seasons
+- Lines 223-238 (resolve_league_by_id): New endpoint GET /api/resolve/league-by-id
+  Resolves a numeric league ID to {id, name}
+
+routes/stats.py
+---------------
+ORIGINAL CHANGES
+- Lines 75-85 (get_player_statistics): Replaced single
+  `call_football_api("players", {"id": player_id, "season": CURRENT_SEASON})`
+  with a loop over (CURRENT_SEASON+1, CURRENT_SEASON, CURRENT_SEASON-1) so
+  player stats are found regardless of which season the API has data for
+
+services/api.py
+---------------
+ORIGINAL CHANGES
+- Line 43 (module level): Removed single `_cache_ttl: int = 300`
+- Lines 43-60 (_cache_get / _cache_set): Updated _cache_get to look up the
+  per-endpoint TTL via _cache_ttl_for() instead of a global constant
+
+NEW ADDITIONS
+- Lines 43-56 (_CACHE_TTL_BY_ENDPOINT): Added per-endpoint TTL dict:
+    fixtures / matches  →  300 s  (5 min,  unchanged – live data)
+    standings           → 3600 s  (1 hour)
+    teams / players / leagues → 86400 s (24 hours – rarely changes)
+    injuries / predictions    →  1800 s  (30 min)
+- Lines 58-59 (_cache_ttl_for): New helper that returns the TTL for a given
+  endpoint name, falling back to 300 s for unknown endpoints
+
+================================================================================
+FRONTEND — TEMPLATES
+================================================================================
+
+templates/pages/favourites_page.html
+-------------------------------------
+ORIGINAL CHANGES (full rewrite of Edit favourites section)
+- Removed three plain <input type="text"> fields that required comma-separated
+  numeric IDs (teams, players) and league codes (leagues)
+
+NEW ADDITIONS
+- Teams: autocomplete-wrapper with search input + suggestions dropdown +
+  fav-tags chip area (id="favTeamsSearch / favTeamsSuggestions / favTeamsTags")
+- Players: team-search input that loads a squad panel on selection +
+  fav-tags chip area (id="favPlayersTeamSearch / favPlayersTeamSuggestions /
+  favPlayersSquad / favPlayersSquadList")
+- Leagues: autocomplete-wrapper with search input + suggestions dropdown +
+  fav-tags chip area (id="favLeaguesSearch / favLeaguesSuggestions / favLeaguesTags")
+
+templates/pages/compare_page.html
+----------------------------------
+ORIGINAL CHANGES
+- Removed <p class="subtitle">Use player numeric IDs for now.</p>
+
+templates/pages/leagues_page.html
+----------------------------------
+ORIGINAL CHANGES (full rewrite)
+- Replaced plain <input onkeyup="searchLeagues()"> with an autocomplete-wrapper
+  containing a search input (id="leagueSearch") and suggestions dropdown
+  (id="leagueSuggestions")
+- Removed onkeyup inline handler; wiring now done in search.js
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/favourites.js
+------------------------
+ORIGINAL CHANGES (full rewrite)
+- Removed syncInputsFromState() and the three plain input read/write calls
+- Removed normaliseItems() helper (no longer needed)
+- saveFavourites(): changed payload to read from editState arrays instead of
+  raw input values; added parseInt() coercion for team and player IDs to match
+  the INTEGER[] database columns
+
+NEW ADDITIONS
+- LEGACY_LEAGUE_NAMES map: static fallback for old-format league codes stored
+  in the database (PL, CL, BL1, SA, PD, FL1, ELC, EL, WC, EC)
+- editState object: {teams, players, leagues} — each an array of {id, name, crest?}
+- renderTags(type): renders removable chip tags for each selected item
+- addFavItem(type, item) / removeFavItem(type, id): add/remove from editState
+  and re-render tags; enforces limits (teams 5, players 10, leagues 3)
+- showSuggestions() / hideSuggestions(): shared dropdown helpers used by all
+  three search inputs; shows "No results found." when API returns empty
+- searchTeams (debounced 300 ms): calls /api/search?type=teams
+- searchPlayersTeam (debounced 300 ms): calls /api/search?type=teams then
+  triggers loadSquadForTeam on selection (two-step approach)
+- loadSquadForTeam(team): fetches /api/teams/<id>/players, renders squad
+  grouped by position (Goalkeeper/Defender/Midfielder/Attacker); clicking a
+  player calls addFavItem and highlights the button green
+- searchLeagues (debounced 300 ms): calls /api/search?type=competitions
+- wireSearchInputs(): attaches input + blur listeners to all three search fields
+- resolveTeam / resolvePlayer / resolveLeague: async helpers that call the new
+  resolve-by-id endpoints to convert saved IDs back to display names on load;
+  resolveLeague checks LEGACY_LEAGUE_NAMES first before calling the API
+
+static/js/compare.js
+---------------------
+ORIGINAL CHANGES (full rewrite)
+- buildTeamInputs(): replaced plain <input placeholder="numeric ID"> with
+  autocomplete-wrapper inputs; added wireTeamAutocomplete(index) call per slot
+- updatePlayerCompareInputs(): replaced plain numeric ID inputs with a full
+  per-slot squad-picker widget (team search → squad panel → selected tag)
+- comparePlayersMultiple(): replaced playerSearch${index}.value numeric ID read
+  with slot.dataset.playerId set by the squad picker
+
+NEW ADDITIONS
+- hideSuggestions(id) / showDropdown(): shared dropdown helpers (same pattern
+  as favourites.js but scoped to compare)
+- fetchTeams(query, leagueFilter): shared team search fetch used by both team
+  compare slots and player slot team search
+- fetchSquad(teamId): calls /api/teams/<id>/players
+- renderSquad(listEl, players, onPlayerSelect): renders squad grouped by
+  position; single-select — clicking a player fires onPlayerSelect callback
+- wireTeamAutocomplete(index): attaches debounced team search + blur to each
+  team compare input; sets dataset.teamId on selection so resolveTeamInput
+  short-circuits the API resolve call
+- wirePlayerSlot(index): attaches team search + clear-button logic to each
+  player slot
+- loadSquadForSlot(index, team): fetches squad and renders it inside the slot's
+  squad panel; on player click, sets slot.dataset.playerId and shows selected tag
+
+static/js/search.js
+--------------------
+ORIGINAL CHANGES (full rewrite)
+- Removed loadLeagueFromQuery() and its debounced wrapper
+- Removed reliance on /api/resolve/league (fuzzy name match); now uses
+  /api/search?type=competitions for dropdown and calls loadStanding with the
+  numeric league ID directly on selection
+
+NEW ADDITIONS
+- searchLeagueDropdown(query): fetches /api/search?type=competitions, renders
+  suggestions dropdown; on mousedown calls PrimeScoreApp.loadStanding(id)
+- wireLeagueSearch(): attaches input + blur listeners to #leagueSearch;
+  called on DOMContentLoaded (or immediately if DOM already ready)
+
+================================================================================
+FRONTEND — CSS (static/style.css)
+================================================================================
+
+NEW ADDITIONS
+- .suggestion-item: flex row layout for dropdown entries (crest + name + subtitle)
+- .suggestion-crest: 22×22 px object-fit:contain image in suggestions
+- .suggestion-name / .suggestion-sub: name (flex:1) and muted subtitle text
+- .suggestion-empty: italic muted "No results found." / "No leagues found." message
+- .fav-tags: flex-wrap container for chip tags
+- .fav-tag: green pill chip (primary-light background, primary border, 999px radius)
+- .fav-tag-crest: 18×18 px crest inside a tag
+- .fav-tag-name: tag label with overflow ellipsis (max-width 160 px)
+- .fav-tag-remove: borderless × button inside tag; turns solid green on hover
+- .squad-label: small muted label above the squad panel
+- .squad-list: scrollable bordered container (max-height 280 px) for squad
+- .squad-position-group / .squad-position-label: groups players by position with
+  an uppercase muted heading
+- .squad-players: flex-wrap row of player buttons
+- .squad-player-btn: pill button for each player; hover turns primary-light green
+- .squad-player-added: applied when a player is already selected (solid green)
