@@ -1,0 +1,28 @@
+1,
+FR7 near completion: added advanced team & player statistics, new Statistics page, and compare enhancements.
+
+Backend
+
+Extended stats in routes/statistics_routes.py (team: possession, shots, SOT, fouls, corners; player: minutes, rating, shots, SOT, fouls)
+Added fixture-based stat aggregation in services/football_api_client.py
+
+Frontend
+
+New Statistics page (templates/pages/stats_page.html, static/js/stats_handlers.js)
+Sidebar + navigation wiring updates
+Compare UI updated (static/js/comparison_handlers.js) to include new metrics
+Styling added in static/style.css
+
+Functionality
+
+Team & Player stats accessible independently via /api/teams//statistics and /api/players//statistics
+Uses recent finished fixtures for advanced team metrics (API limitation workaround)
+
+2,
+Optimisation updates applied to runtime/app code:
+
+static/js/app_helpers.js
+static/js/comparison_handlers.js
+routes/favourites_routes.py
+routes/statistics_routes.py
+routes/lookup_routes.py
