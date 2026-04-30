@@ -1,7 +1,9 @@
 """Favourites routes and home-page data."""
 
+from copy import deepcopy
 import logging
 import random
+import time
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request, session
@@ -22,6 +24,8 @@ favourites_bp = Blueprint("favourites", __name__)
 logger = logging.getLogger(__name__)
 
 DISPLAY_COLUMNS_READY = False
+HOME_SCREEN_CACHE = {}
+HOME_SCREEN_CACHE_TTL_SECONDS = 45
 
 
 def _today_string():
@@ -87,6 +91,54 @@ def _ensure_display_columns():
         )
 
     DISPLAY_COLUMNS_READY = True
+
+
+def reset_home_screen_cache():
+    HOME_SCREEN_CACHE.clear()
+
+
+def _cache_home_payload_key(user_id, selected_league, favourites_row):
+    row = favourites_row or {}
+    selected = selected_league or {}
+
+    return (
+        user_id or 0,
+        str(selected.get("code") or selected.get("id") or ""),
+        tuple(row.get("favourite_teams") or []),
+        tuple(row.get("favourite_players") or []),
+        tuple(row.get("favourite_leagues") or []),
+        tuple(row.get("favourite_team_names") or []),
+        tuple(row.get("favourite_player_names") or []),
+        tuple(row.get("favourite_league_names") or []),
+    )
+
+
+def _get_cached_home_payload(cache_key):
+    cached_entry = HOME_SCREEN_CACHE.get(cache_key)
+    if not cached_entry:
+        return None
+
+    if cached_entry["expires_at"] <= time.time():
+        HOME_SCREEN_CACHE.pop(cache_key, None)
+        return None
+
+    return deepcopy(cached_entry["payload"])
+
+
+def _set_cached_home_payload(cache_key, payload):
+    HOME_SCREEN_CACHE[cache_key] = {
+        "payload": deepcopy(payload),
+        "expires_at": time.time() + HOME_SCREEN_CACHE_TTL_SECONDS,
+    }
+
+
+def _invalidate_home_cache_for_user(user_id):
+    if not user_id:
+        return
+
+    for cache_key in list(HOME_SCREEN_CACHE.keys()):
+        if cache_key[0] == user_id:
+            HOME_SCREEN_CACHE.pop(cache_key, None)
 
 
 def _get_saved_favourites_row(user_id):
@@ -437,11 +489,17 @@ def _format_favourite_player_stat(player_id, fallback_name=""):
 @favourites_bp.route("/home-screen", methods=["GET"])
 def get_home_screen():
     preferred_league_reference = request.args.get("league")
-    favourites_row = _get_saved_favourites_row(session["user_id"]) if "user_id" in session else None
+    user_id = session.get("user_id")
+    favourites_row = _get_saved_favourites_row(user_id) if user_id else None
     home_league = _get_home_league_context(
         preferred_reference=preferred_league_reference,
         favourites_row=favourites_row,
     )
+    cache_key = _cache_home_payload_key(user_id, home_league, favourites_row)
+    cached_payload = _get_cached_home_payload(cache_key)
+    if cached_payload is not None:
+        return jsonify(cached_payload), 200
+
     home_data = _empty_home_payload(selected_league=home_league)
 
     favourite_team_ids = [int(team_id) for team_id in (favourites_row or {}).get("favourite_teams", []) or []]
@@ -483,6 +541,7 @@ def get_home_screen():
             continue
         home_data["favourite_player_stats"].append(favourite_player_stat)
 
+    _set_cached_home_payload(cache_key, home_data)
     return jsonify(home_data), 200
 
 
@@ -583,6 +642,7 @@ def update_favourites():
         logger.exception("update_favourites DB error")
         return jsonify({"error": "Could not save favourites"}), 500
 
+    _invalidate_home_cache_for_user(session.get("user_id"))
     return jsonify(
         {
             "message": "Saved",

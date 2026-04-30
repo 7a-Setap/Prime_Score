@@ -22,6 +22,9 @@
     if (pageName === "leagues") {
       await PrimeScoreApp.loadDefaultLeagues?.();
     }
+    if (pageName === "stats") {
+      await PrimeScoreApp.loadStatsPage?.();
+    }
     if (pageName === "favourites") {
       await PrimeScoreApp.loadFavourites?.();
     }

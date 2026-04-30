@@ -1,7 +1,9 @@
 """Utility routes plus shared name-to-ID resolvers for teams, players, and leagues."""
 
+from copy import deepcopy
 from datetime import datetime
 from difflib import SequenceMatcher
+import time
 import unicodedata
 
 from flask import Blueprint, jsonify, request
@@ -31,6 +33,12 @@ LEAGUE_CODE_TO_NAME = {
 }
 
 LEAGUE_ID_TO_CODE = {str(league_id): code for code, league_id in LEAGUE_CODE_TO_ID.items()}
+REFERENCE_CACHE = {
+    "leagues": {},
+    "teams": {},
+    "players": {},
+}
+REFERENCE_CACHE_TTL_SECONDS = 300
 
 
 def score_result(candidate, query):
@@ -49,6 +57,33 @@ def score_result(candidate, query):
 
 def is_rate_limited_payload(data):
     return bool(data and data.get("_error") == "rate_limit")
+
+
+def reset_lookup_caches():
+    for cache_store in REFERENCE_CACHE.values():
+        cache_store.clear()
+
+
+def _reference_cache_get(kind, cache_key):
+    cached_entry = REFERENCE_CACHE[kind].get(cache_key)
+    if not cached_entry:
+        return None
+
+    if cached_entry["expires_at"] <= time.time():
+        REFERENCE_CACHE[kind].pop(cache_key, None)
+        return None
+
+    return deepcopy(cached_entry["payload"])
+
+
+def _reference_cache_set(kind, cache_key, payload):
+    if not payload or is_rate_limited_payload(payload):
+        return
+
+    REFERENCE_CACHE[kind][cache_key] = {
+        "payload": deepcopy(payload),
+        "expires_at": time.time() + REFERENCE_CACHE_TTL_SECONDS,
+    }
 
 
 def rate_limit_response(data):
@@ -96,21 +131,30 @@ def resolve_league_reference(reference):
     if not raw_value:
         return None
 
+    cache_key = normalise_match_text(raw_value)
+    cached_league = _reference_cache_get("leagues", cache_key)
+    if cached_league is not None:
+        return cached_league
+
     upper_value = raw_value.upper()
     if upper_value in LEAGUE_CODE_TO_ID:
-        return {
+        payload = {
             "id": LEAGUE_CODE_TO_ID[upper_value],
             "code": upper_value,
             "name": LEAGUE_CODE_TO_NAME.get(upper_value, upper_value),
         }
+        _reference_cache_set("leagues", cache_key, payload)
+        return payload
 
     if raw_value.isdigit():
         code = LEAGUE_ID_TO_CODE.get(raw_value)
-        return {
+        payload = {
             "id": int(raw_value),
             "code": code or raw_value,
             "name": LEAGUE_CODE_TO_NAME.get(code, raw_value),
         }
+        _reference_cache_set("leagues", cache_key, payload)
+        return payload
 
     compact_query = _normalise_compact_text(raw_value)
     local_match = None
@@ -133,6 +177,7 @@ def resolve_league_reference(reference):
             }
 
     if local_match and local_score >= 0.6:
+        _reference_cache_set("leagues", cache_key, local_match)
         return local_match
 
     data = call_football_api("leagues", {"search": raw_value})
@@ -153,17 +198,24 @@ def resolve_league_reference(reference):
 
     league_id = best_match.get("id")
     league_code = LEAGUE_ID_TO_CODE.get(str(league_id), str(league_id))
-    return {
+    payload = {
         "id": league_id,
         "code": league_code,
         "name": best_match.get("name", raw_value),
     }
+    _reference_cache_set("leagues", cache_key, payload)
+    return payload
 
 
 def resolve_team_reference(reference, league_filter=None):
     raw_value = normalise_query_value(reference)
     if not raw_value:
         return None
+
+    cache_key = f"{normalise_match_text(raw_value)}|league:{normalise_match_text(league_filter or '')}"
+    cached_team = _reference_cache_get("teams", cache_key)
+    if cached_team is not None:
+        return cached_team
 
     if raw_value.isdigit():
         data = call_football_api("teams", {"id": int(raw_value)})
@@ -173,11 +225,13 @@ def resolve_team_reference(reference, league_filter=None):
             return None
 
         team = data["response"][0].get("team", {})
-        return {
+        payload = {
             "id": team.get("id"),
             "name": team.get("name", raw_value),
             "crest": team.get("logo", ""),
         }
+        _reference_cache_set("teams", cache_key, payload)
+        return payload
 
     league_id = None
     if league_filter:
@@ -219,11 +273,13 @@ def resolve_team_reference(reference, league_filter=None):
     if not best_match:
         return None
 
-    return {
+    payload = {
         "id": best_match.get("id"),
         "name": best_match.get("name", raw_value),
         "crest": best_match.get("logo", ""),
     }
+    _reference_cache_set("teams", cache_key, payload)
+    return payload
 
 
 def _best_player_match(player_candidates, query, team_name=""):
@@ -269,6 +325,11 @@ def resolve_player_reference(reference, team_reference=None):
     if not raw_value:
         return None
 
+    cache_key = f"{normalise_match_text(raw_value)}|team:{normalise_match_text(team_reference or '')}"
+    cached_player = _reference_cache_get("players", cache_key)
+    if cached_player is not None:
+        return cached_player
+
     if raw_value.isdigit():
         data = call_football_api("players", {"id": int(raw_value), "season": CURRENT_SEASON})
         if is_rate_limited_payload(data):
@@ -279,12 +340,14 @@ def resolve_player_reference(reference, team_reference=None):
         player_data = data["response"][0]
         player = player_data.get("player", {})
         statistics = (player_data.get("statistics") or [{}])[0]
-        return {
+        payload = {
             "id": player.get("id", int(raw_value)),
             "name": player.get("name", raw_value),
             "photo": player.get("photo", ""),
             "team": (statistics.get("team") or {}).get("name", ""),
         }
+        _reference_cache_set("players", cache_key, payload)
+        return payload
 
     if not team_reference:
         return None
@@ -315,12 +378,14 @@ def resolve_player_reference(reference, team_reference=None):
 
     best_match = _best_player_match(squad_candidates, raw_value, resolved_team["name"])
     if best_match:
-        return {
+        payload = {
             "id": best_match.get("id"),
             "name": best_match.get("name", raw_value),
             "photo": best_match.get("photo", ""),
             "team": resolved_team["name"],
         }
+        _reference_cache_set("players", cache_key, payload)
+        return payload
 
     players_data = call_football_api("players", {"team": resolved_team["id"], "season": CURRENT_SEASON})
     if is_rate_limited_payload(players_data):
@@ -345,12 +410,14 @@ def resolve_player_reference(reference, team_reference=None):
     if not best_match:
         return None
 
-    return {
+    payload = {
         "id": best_match.get("id"),
         "name": best_match.get("name", raw_value),
         "photo": best_match.get("photo", ""),
         "team": best_match.get("team", resolved_team["name"]),
     }
+    _reference_cache_set("players", cache_key, payload)
+    return payload
 
 
 @utils_bp.route("/health", methods=["GET"])
