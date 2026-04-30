@@ -1,4 +1,16 @@
 (function (PrimeScoreApp) {
+  function describeTeamField(teamLabel) {
+    return teamLabel ? `Team ${teamLabel}` : "a team";
+  }
+
+  function describePlayerField(playerLabel) {
+    return playerLabel ? `Player ${playerLabel}` : "a player";
+  }
+
+  function normaliseLookupKeyPart(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
   function buildTeamInputs() {
     const container = PrimeScoreApp.getById("teamCompareInputs");
     const count = Number.parseInt(PrimeScoreApp.getById("teamCompareCount")?.value || "2", 10);
@@ -70,7 +82,7 @@
     const typedValue = input?.value.trim() || "";
 
     if (!typedValue) {
-      throw new Error(`Enter Team ${teamLabel}.`);
+      throw new Error(`Enter ${describeTeamField(teamLabel)}.`);
     }
 
     if (input.dataset.teamId && input.dataset.resolvedName === typedValue) {
@@ -78,7 +90,11 @@
     }
 
     if (/^\d+$/.test(typedValue)) {
-      const resolvedTeam = await PrimeScoreApp.apiFetch(`/api/resolve/team?q=${encodeURIComponent(typedValue)}`);
+      const resolvedTeam = await PrimeScoreApp.cachedLookupFetch(
+        "teams",
+        `id:${typedValue}`,
+        `/api/resolve/team?q=${encodeURIComponent(typedValue)}`
+      );
       input.value = resolvedTeam.name || typedValue;
       input.dataset.teamId = String(resolvedTeam.id);
       input.dataset.resolvedName = resolvedTeam.name || typedValue;
@@ -93,7 +109,11 @@
       query.set("league", leagueFilter);
     }
 
-    const resolvedTeam = await PrimeScoreApp.apiFetch(`/api/resolve/team?${query.toString()}`);
+    const resolvedTeam = await PrimeScoreApp.cachedLookupFetch(
+      "teams",
+      `search:${normaliseLookupKeyPart(typedValue)}|league:${normaliseLookupKeyPart(leagueFilter)}`,
+      `/api/resolve/team?${query.toString()}`
+    );
 
     input.value = resolvedTeam.name || typedValue;
     input.dataset.teamId = String(resolvedTeam.id);
@@ -110,7 +130,7 @@
     const typedTeam = teamInput?.value.trim() || "";
 
     if (!typedValue) {
-      throw new Error(`Enter Player ${playerLabel}.`);
+      throw new Error(`Enter ${describePlayerField(playerLabel)}.`);
     }
 
     if (input.dataset.playerId && input.dataset.resolvedName === typedValue) {
@@ -123,7 +143,11 @@
         query.set("team", typedTeam);
       }
 
-      const resolvedPlayer = await PrimeScoreApp.apiFetch(`/api/resolve/player?${query.toString()}`);
+      const resolvedPlayer = await PrimeScoreApp.cachedLookupFetch(
+        "players",
+        `id:${typedValue}|team:${normaliseLookupKeyPart(typedTeam)}`,
+        `/api/resolve/player?${query.toString()}`
+      );
       input.value = resolvedPlayer.name || typedValue;
       input.dataset.playerId = String(resolvedPlayer.id);
       input.dataset.resolvedName = resolvedPlayer.name || typedValue;
@@ -134,7 +158,7 @@
     }
 
     if (!typedTeam) {
-      throw new Error(`Enter Player ${playerLabel} Team.`);
+      throw new Error(`Enter the team for ${describePlayerField(playerLabel)}.`);
     }
 
     const query = new URLSearchParams({
@@ -142,7 +166,11 @@
       team: typedTeam,
     });
 
-    const resolvedPlayer = await PrimeScoreApp.apiFetch(`/api/resolve/player?${query.toString()}`);
+    const resolvedPlayer = await PrimeScoreApp.cachedLookupFetch(
+      "players",
+      `search:${normaliseLookupKeyPart(typedValue)}|team:${normaliseLookupKeyPart(typedTeam)}`,
+      `/api/resolve/player?${query.toString()}`
+    );
     input.value = resolvedPlayer.name || typedValue;
     input.dataset.playerId = String(resolvedPlayer.id);
     input.dataset.resolvedName = resolvedPlayer.name || typedValue;
@@ -183,6 +211,13 @@
       return '<p class="empty">No comparison data found.</p>';
     }
 
+    const formatStatValue = (value) => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return Number.isInteger(value) ? String(value) : value.toFixed(1);
+      }
+      return PrimeScoreApp.escapeHtml(value ?? "");
+    };
+
     let html = '<table class="comparison-table"><thead><tr><th>Stat</th>';
     rows.forEach((row) => {
       html += `<th>${PrimeScoreApp.escapeHtml(row.name)}</th>`;
@@ -196,7 +231,7 @@
       html += `<tr><td>${label}</td>`;
       values.forEach((value) => {
         const highlight = highestValue > 0 && value === highestValue ? ' class="highlight"' : "";
-        html += `<td${highlight}>${value}</td>`;
+        html += `<td${highlight}>${formatStatValue(value)}</td>`;
       });
       html += "</tr>";
     });
@@ -266,6 +301,11 @@
             { key: "goals_scored", label: "Goals For" },
             { key: "goals_conceded", label: "Goals Against" },
             { key: "clean_sheets", label: "Clean Sheets" },
+            { key: "average_possession", label: "Avg Possession (%)" },
+            { key: "average_shots", label: "Avg Shots" },
+            { key: "average_shots_on_target", label: "Avg Shots on Target" },
+            { key: "average_fouls_committed", label: "Avg Fouls" },
+            { key: "average_corners", label: "Avg Corners" },
           ],
           (data, key) => data[key] ?? 0
         );
@@ -321,6 +361,10 @@
             { key: "goals", label: "Goals" },
             { key: "assists", label: "Assists" },
             { key: "appearances", label: "Appearances" },
+            { key: "minutes", label: "Minutes" },
+            { key: "shots", label: "Shots" },
+            { key: "shots_on_target", label: "Shots on Target" },
+            { key: "fouls_committed", label: "Fouls Committed" },
             { key: "yellow_cards", label: "Yellow Cards" },
             { key: "red_cards", label: "Red Cards" },
           ],
@@ -336,6 +380,8 @@
 
   PrimeScoreApp.buildTeamInputs = buildTeamInputs;
   PrimeScoreApp.compareTeamsMultiple = compareTeamsMultiple;
+  PrimeScoreApp.resolveTeamInput = resolveTeamInput;
+  PrimeScoreApp.resolvePlayerInput = resolvePlayerInput;
   PrimeScoreApp.updatePlayerCompareInputs = updatePlayerCompareInputs;
   PrimeScoreApp.comparePlayersMultiple = comparePlayersMultiple;
 })(window.PrimeScoreApp);

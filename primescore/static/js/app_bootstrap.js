@@ -41,6 +41,7 @@
     PrimeScoreApp.wireNav?.();
     PrimeScoreApp.buildTeamInputs?.();
     PrimeScoreApp.updatePlayerCompareInputs?.();
+    PrimeScoreApp.initialiseStatsPage?.();
 
     bindAuthForms();
     bindCompareControls();
@@ -63,6 +64,9 @@
   window.updateTeamCompareInputs = PrimeScoreApp.buildTeamInputs;
   window.comparePlayersMultiple = PrimeScoreApp.comparePlayersMultiple;
   window.updatePlayerCompareInputs = PrimeScoreApp.updatePlayerCompareInputs;
+  window.showStatsTab = PrimeScoreApp.showStatsTab;
+  window.viewTeamStats = PrimeScoreApp.viewTeamStats;
+  window.viewPlayerStats = PrimeScoreApp.viewPlayerStats;
   window.searchLeagues = PrimeScoreApp.searchLeagues;
   window.cycleHomeLeague = PrimeScoreApp.cycleHomeLeague;
   window.logout = PrimeScoreApp.logout;

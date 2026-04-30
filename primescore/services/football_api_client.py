@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 ENDPOINTS = {
     "fixtures": "fixtures",
     "matches": "fixtures",
+    "fixture_statistics": "fixtures/statistics",
     "teams": "teams",
     "players": "players",
     "player_profiles": "players/profiles",
@@ -88,6 +89,8 @@ def _cache_ttl(endpoint, params):
         if cleaned_params.get("status") in ("FT", "NS"):
             return 60
         return 30
+    if endpoint == "fixture_statistics":
+        return 300
     if endpoint in ("teams", "player_profiles", "player_squads"):
         return 300
     if endpoint == "players":

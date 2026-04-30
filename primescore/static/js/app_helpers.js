@@ -18,6 +18,14 @@
     playerCompareRunId: 0,
     currentPage: "login",
     homeRequestPromise: null,
+    lookupCache: {
+      teams: {},
+      players: {},
+    },
+    lookupPromises: {
+      teams: {},
+      players: {},
+    },
   };
 
   PrimeScoreApp.getById = (id) => document.getElementById(id);
@@ -78,6 +86,13 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
+  PrimeScoreApp.cloneJson = (value) => {
+    if (value == null) {
+      return value;
+    }
+    return JSON.parse(JSON.stringify(value));
+  };
+
   PrimeScoreApp.apiFetch = async (url, options = {}) => {
     const response = await fetch(url, {
       credentials: "include",
@@ -99,6 +114,34 @@
     }
 
     return response.json();
+  };
+
+  PrimeScoreApp.cachedLookupFetch = async (kind, cacheKey, url) => {
+    const store = PrimeScoreApp.state.lookupCache[kind] || {};
+    const promiseStore = PrimeScoreApp.state.lookupPromises[kind] || {};
+
+    if (store[cacheKey]) {
+      return PrimeScoreApp.cloneJson(store[cacheKey]);
+    }
+
+    if (promiseStore[cacheKey]) {
+      return promiseStore[cacheKey];
+    }
+
+    promiseStore[cacheKey] = PrimeScoreApp.apiFetch(url)
+      .then((payload) => {
+        store[cacheKey] = PrimeScoreApp.cloneJson(payload);
+        delete promiseStore[cacheKey];
+        return PrimeScoreApp.cloneJson(payload);
+      })
+      .catch((error) => {
+        delete promiseStore[cacheKey];
+        throw error;
+      });
+
+    PrimeScoreApp.state.lookupCache[kind] = store;
+    PrimeScoreApp.state.lookupPromises[kind] = promiseStore;
+    return promiseStore[cacheKey];
   };
 
   PrimeScoreApp.updateDisplayedName = () => {

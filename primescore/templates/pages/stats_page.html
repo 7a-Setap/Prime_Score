@@ -1,0 +1,54 @@
+<section id="statsPage" class="page">
+  <div class="container">
+    <h2>Statistics</h2>
+    <p class="subtitle">Inspect team and player stats without running a comparison first.</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="showStatsTab('teamStatsTab', this)">Team Stats</button>
+      <button class="tab-btn" onclick="showStatsTab('playerStatsTab', this)">Player Stats</button>
+    </div>
+
+    <div id="teamStatsTab" class="tab-content active">
+      <div class="compare-controls">
+        <label for="statsLeagueFilter">League</label>
+        <select id="statsLeagueFilter">
+          <option value="">Any League</option>
+          <option value="PL">Premier League</option>
+          <option value="CL">Champions League</option>
+          <option value="BL1">Bundesliga</option>
+          <option value="SA">Serie A</option>
+          <option value="PD">La Liga</option>
+          <option value="FL1">Ligue 1</option>
+        </select>
+      </div>
+
+      <div class="compare-inputs-dynamic">
+        <div class="compare-input-group">
+          <label for="teamStatsSearch">Team</label>
+          <input id="teamStatsSearch" type="text" placeholder="Type a team name or numeric ID" autocomplete="off" />
+        </div>
+      </div>
+
+      <button onclick="viewTeamStats()" class="btn-primary">Load Team Stats</button>
+      <div id="individualTeamStatsResult" class="comparison-result"></div>
+    </div>
+
+    <div id="playerStatsTab" class="tab-content" style="display:none">
+      <p class="subtitle">Type each player's team when searching by name. Numeric player IDs still work on their own.</p>
+
+      <div class="compare-inputs-dynamic">
+        <div class="compare-input-group">
+          <label for="playerStatsTeamSearch">Player Team</label>
+          <input id="playerStatsTeamSearch" type="text" placeholder="Type the player's team" autocomplete="off" />
+        </div>
+        <div class="compare-input-group">
+          <label for="playerStatsSearch">Player</label>
+          <input id="playerStatsSearch" type="text" placeholder="Type a player name or numeric ID" autocomplete="off" />
+        </div>
+      </div>
+
+      <button onclick="viewPlayerStats()" class="btn-primary">Load Player Stats</button>
+      <div id="individualPlayerStatsResult" class="comparison-result"></div>
+    </div>
+  </div>
+</section>

@@ -339,6 +339,43 @@ label,
   font-size: 0.9rem;
 }
 
+.stats-detail-card {
+  margin-top: 1rem;
+}
+
+.stats-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stats-detail-crest {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.stats-detail-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 108px;
+}
+
+.metric-card strong {
+  font-size: 1.25rem;
+}
+
+.metric-card span {
+  color: var(--muted);
+}
+
 .section-header,
 .page-header {
   display: flex;

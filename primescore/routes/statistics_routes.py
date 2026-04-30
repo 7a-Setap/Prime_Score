@@ -1,6 +1,8 @@
 """Statistics routes used by standings and compare pages."""
 
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import time
 
 from flask import Blueprint, jsonify, request
 
@@ -18,9 +20,44 @@ LEAGUE_MAP = {
     "FL1": 61,
 }
 
+TEAM_ADVANCED_STAT_LABELS = {
+    "average_possession": "Ball Possession",
+    "average_shots": "Total Shots",
+    "average_shots_on_target": "Shots on Goal",
+    "average_fouls_committed": "Fouls",
+    "average_corners": "Corner Kicks",
+}
+TEAM_STATS_CACHE = {}
+PLAYER_STATS_CACHE = {}
+STATISTICS_CACHE_TTL_SECONDS = 180
+
 
 def _league_id(value):
     return LEAGUE_MAP.get(value, value)
+
+
+def reset_statistics_route_caches():
+    TEAM_STATS_CACHE.clear()
+    PLAYER_STATS_CACHE.clear()
+
+
+def _cache_entry(cache_store, cache_key):
+    cached_entry = cache_store.get(cache_key)
+    if not cached_entry:
+        return None
+
+    if cached_entry["expires_at"] <= time.time():
+        cache_store.pop(cache_key, None)
+        return None
+
+    return deepcopy(cached_entry["payload"])
+
+
+def _store_cache_entry(cache_store, cache_key, payload):
+    cache_store[cache_key] = {
+        "payload": deepcopy(payload),
+        "expires_at": time.time() + STATISTICS_CACHE_TTL_SECONDS,
+    }
 
 
 def _today_string():
@@ -63,6 +100,103 @@ def _extract_league_id_from_leagues(data):
     return (preferred_item.get("league") or {}).get("id")
 
 
+def _empty_team_advanced_stats():
+    return {
+        "advanced_stats_matches": 0,
+        "average_possession": 0.0,
+        "average_shots": 0.0,
+        "average_shots_on_target": 0.0,
+        "average_fouls_committed": 0.0,
+        "average_corners": 0.0,
+    }
+
+
+def _coerce_stat_number(raw_value):
+    if raw_value in (None, ""):
+        return 0.0
+    if isinstance(raw_value, (int, float)):
+        return float(raw_value)
+
+    cleaned_value = str(raw_value).replace("%", "").strip()
+    try:
+        return float(cleaned_value)
+    except ValueError:
+        return 0.0
+
+
+def _extract_fixture_stat(statistics_items, stat_label):
+    for item in statistics_items or []:
+        if str(item.get("type") or "").strip().lower() == stat_label.lower():
+            return _coerce_stat_number(item.get("value"))
+    return 0.0
+
+
+def _recent_finished_matches(matches_data, limit=10):
+    finished_matches = []
+    for match in (matches_data or {}).get("response", []):
+        fixture = match.get("fixture", {})
+        status = (fixture.get("status") or {}).get("short")
+        if status not in ("FT", "AET", "PEN"):
+            continue
+        finished_matches.append(match)
+
+    finished_matches.sort(
+        key=lambda match: ((match.get("fixture") or {}).get("date") or ""),
+        reverse=True,
+    )
+    return finished_matches[:limit]
+
+
+def _collect_recent_team_advanced_stats(team_id, matches_data, limit=5):
+    totals = {key: 0.0 for key in TEAM_ADVANCED_STAT_LABELS}
+    sample_count = 0
+
+    for match in _recent_finished_matches(matches_data, limit=limit):
+        fixture_id = (match.get("fixture") or {}).get("id")
+        if not fixture_id:
+            continue
+
+        fixture_stats = call_football_api("fixture_statistics", {"fixture": fixture_id})
+        if not fixture_stats or fixture_stats.get("_error"):
+            continue
+
+        team_stats = next(
+            (
+                item
+                for item in (fixture_stats.get("response") or [])
+                if str((item.get("team") or {}).get("id")) == str(team_id)
+            ),
+            None,
+        )
+        if not team_stats:
+            continue
+
+        statistics_items = team_stats.get("statistics") or []
+        sample_count += 1
+        for key, label in TEAM_ADVANCED_STAT_LABELS.items():
+            totals[key] += _extract_fixture_stat(statistics_items, label)
+
+    if sample_count == 0:
+        return _empty_team_advanced_stats()
+
+    averaged_stats = {
+        key: round(total / sample_count, 1)
+        for key, total in totals.items()
+    }
+    return {
+        "advanced_stats_matches": sample_count,
+        **averaged_stats,
+    }
+
+
+def _merge_team_stats(base_stats, advanced_stats=None):
+    merged_stats = {**(base_stats or {})}
+    merged_stats.update(_empty_team_advanced_stats())
+    if advanced_stats:
+        merged_stats.update(advanced_stats)
+    return merged_stats
+
+
 def _resolve_team_league_id(team_id, requested_league=None):
     if requested_league:
         return _league_id(requested_league)
@@ -100,6 +234,30 @@ def _format_official_team_statistics(team_id, stats_data):
     }
 
 
+def _format_player_statistics_payload(player_id, player_data):
+    player = player_data.get("player", {})
+    statistics = (player_data.get("statistics") or [{}])[0]
+
+    return {
+        "player_id": player_id,
+        "player_name": player.get("name", "Unknown"),
+        "current_team": (statistics.get("team") or {}).get("name"),
+        "position": (statistics.get("games") or {}).get("position"),
+        "statistics": {
+            "goals": (statistics.get("goals") or {}).get("total", 0) or 0,
+            "assists": (statistics.get("goals") or {}).get("assists", 0) or 0,
+            "appearances": (statistics.get("games") or {}).get("appearances", 0) or 0,
+            "minutes": (statistics.get("games") or {}).get("minutes", 0) or 0,
+            "rating": (statistics.get("games") or {}).get("rating", "") or "",
+            "shots": (statistics.get("shots") or {}).get("total", 0) or 0,
+            "shots_on_target": (statistics.get("shots") or {}).get("on", 0) or 0,
+            "fouls_committed": (statistics.get("fouls") or {}).get("committed", 0) or 0,
+            "yellow_cards": (statistics.get("cards") or {}).get("yellow", 0) or 0,
+            "red_cards": (statistics.get("cards") or {}).get("red", 0) or 0,
+        },
+    }
+
+
 @stats_bp.route("/leagues/<league_id>/standings", methods=["GET"])
 def get_league_standings(league_id):
     data = call_football_api("standings", {"league": _league_id(league_id), "season": CURRENT_SEASON})
@@ -125,6 +283,10 @@ def standings_lookup():
 def get_team_statistics(team_id):
     team_name = (request.args.get("name") or "").strip()
     requested_league = (request.args.get("league") or "").strip()
+    cache_key = (int(team_id), str(requested_league or "").upper(), int(CURRENT_SEASON))
+    cached_payload = _cache_entry(TEAM_STATS_CACHE, cache_key)
+    if cached_payload is not None:
+        return jsonify(cached_payload), 200
 
     team_data = call_football_api("teams", {"id": team_id})
     team = None
@@ -141,8 +303,7 @@ def get_team_statistics(team_id):
 
     recent_match_params = {
         "team": team_id,
-        "from": _date_offset_string(-365),
-        "to": _today_string(),
+        "season": CURRENT_SEASON,
         "status": "FT-AET-PEN",
     }
     if requested_league:
@@ -150,8 +311,11 @@ def get_team_statistics(team_id):
 
     matches_data = call_football_api("matches", recent_match_params)
     recent_stats = compute_team_stats(team_id, team, matches_data)
+    advanced_stats = _collect_recent_team_advanced_stats(team_id, matches_data)
     if recent_stats["matches_played"] > 0:
-        return jsonify(recent_stats), 200
+        response_payload = _merge_team_stats(recent_stats, advanced_stats)
+        _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
+        return jsonify(response_payload), 200
 
     league_id = _resolve_team_league_id(team_id, requested_league=requested_league)
     if league_id:
@@ -165,13 +329,22 @@ def get_team_statistics(team_id):
         )
         formatted_official_stats = _format_official_team_statistics(team_id, official_stats)
         if formatted_official_stats:
-            return jsonify(formatted_official_stats), 200
+            response_payload = _merge_team_stats(formatted_official_stats, advanced_stats)
+            _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
+            return jsonify(response_payload), 200
 
-    return jsonify(recent_stats), 200
+    response_payload = _merge_team_stats(recent_stats, advanced_stats)
+    _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
+    return jsonify(response_payload), 200
 
 
 @stats_bp.route("/players/<int:player_id>/statistics", methods=["GET"])
 def get_player_statistics(player_id):
+    cache_key = (int(player_id), int(CURRENT_SEASON))
+    cached_payload = _cache_entry(PLAYER_STATS_CACHE, cache_key)
+    if cached_payload is not None:
+        return jsonify(cached_payload), 200
+
     data = call_football_api(
         "players",
         {
@@ -183,22 +356,6 @@ def get_player_statistics(player_id):
     if not data or not data.get("response"):
         return jsonify({"error": "Player not found"}), 404
 
-    player_data = data["response"][0]
-    player = player_data.get("player", {})
-    statistics = (player_data.get("statistics") or [{}])[0]
-
-    return jsonify(
-        {
-            "player_id": player_id,
-            "player_name": player.get("name", "Unknown"),
-            "current_team": (statistics.get("team") or {}).get("name"),
-            "position": (statistics.get("games") or {}).get("position"),
-            "statistics": {
-                "goals": (statistics.get("goals") or {}).get("total", 0) or 0,
-                "assists": (statistics.get("goals") or {}).get("assists", 0) or 0,
-                "appearances": (statistics.get("games") or {}).get("appearances", 0) or 0,
-                "yellow_cards": (statistics.get("cards") or {}).get("yellow", 0) or 0,
-                "red_cards": (statistics.get("cards") or {}).get("red", 0) or 0,
-            },
-        }
-    ), 200
+    response_payload = _format_player_statistics_payload(player_id, data["response"][0])
+    _store_cache_entry(PLAYER_STATS_CACHE, cache_key, response_payload)
+    return jsonify(response_payload), 200
