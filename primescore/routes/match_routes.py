@@ -88,16 +88,10 @@ def get_fixtures():
     if auth_error:
         return auth_error
 
-    params = {
-        "league": _resolve_league_id(request.args.get("league_id")),
-        "from": _today_string(),
-        "to": _date_offset_string(60),
-        "status": "NS",
-    }
+    params = {"date": _date_offset_string(1)}
 
     team_id = request.args.get("team_id")
     if team_id:
-        params.pop("league", None)
         params["team"] = team_id
 
     data = call_football_api("fixtures", params)

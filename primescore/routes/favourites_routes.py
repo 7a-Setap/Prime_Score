@@ -374,14 +374,11 @@ def _load_filtered_live_matches(team_ids=None, league_ids=None):
 
 
 def _load_league_matches(league_id, status, *, limit=5, randomize=False):
-    data = call_football_api(
-        "fixtures",
-        {
-            "league": league_id,
-            "season": CURRENT_SEASON,
-            "status": status,
-        },
-    )
+    if status == "NS":
+        params = {"date": _date_offset_string(1)}
+    else:
+        params = {"league": league_id, "season": CURRENT_SEASON, "status": status}
+    data = call_football_api("fixtures", params)
     if is_rate_limited_response(data):
         return []
 
@@ -397,14 +394,11 @@ def _load_league_matches(league_id, status, *, limit=5, randomize=False):
 def _load_team_matches(team_ids, status):
     aggregated_matches = []
     for team_id in team_ids:
-        data = call_football_api(
-            "fixtures",
-            {
-                "team": team_id,
-                "season": CURRENT_SEASON,
-                "status": status,
-            },
-        )
+        if status == "NS":
+            params = {"team": team_id, "date": _date_offset_string(1)}
+        else:
+            params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
+        data = call_football_api("fixtures", params)
         if is_rate_limited_response(data):
             break
         aggregated_matches.extend(_map_fixture(match) for match in (data or {}).get("response", []))
