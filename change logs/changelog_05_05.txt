@@ -1,0 +1,54 @@
+BRANCH MERGE & UPCOMING FIXTURES FIX - CHANGE LOG
+Date: 05 May 2026 | Total changes: 5
+
+CHANGES
+-------
+
+- (match_routes.py | get_fixtures()): Replaced from/to/status/league query with date-based query
+    FROM: params = {
+              "league": _resolve_league_id(request.args.get("league_id")),
+              "from": _today_string(),
+              "to": _date_offset_string(60),
+              "status": "NS",
+          }
+          team_id = request.args.get("team_id")
+          if team_id:
+              params.pop("league", None)
+              params["team"] = team_id
+    TO:   params = {"date": _date_offset_string(1)}
+          team_id = request.args.get("team_id")
+          if team_id:
+              params["team"] = team_id
+
+- (favourites_routes.py | _load_league_matches()): Use date-based query when fetching upcoming (NS) fixtures
+    FROM: data = call_football_api("fixtures", {
+              "league": league_id, "season": CURRENT_SEASON, "status": status
+          })
+    TO:   if status == "NS":
+              params = {"date": _date_offset_string(1)}
+          else:
+              params = {"league": league_id, "season": CURRENT_SEASON, "status": status}
+          data = call_football_api("fixtures", params)
+
+- (favourites_routes.py | _load_team_matches()): Use date-based query when fetching upcoming (NS) fixtures per team
+    FROM: data = call_football_api("fixtures", {
+              "team": team_id, "season": CURRENT_SEASON, "status": status
+          })
+    TO:   if status == "NS":
+              params = {"team": team_id, "date": _date_offset_string(1)}
+          else:
+              params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
+          data = call_football_api("fixtures", params)
+
+MERGED FROM api.py-changes
+---------------------------
+The following files were updated via the branch merge (see api_changelog_04_26.txt
+and api_changelog_04_27.txt for full details of those changes):
+
+- primescore/services/api.py       (TTL cache, retry session, type hints, rate-limit logging,
+                                    FINISHED_STATUSES constant, group_index for format_standings)
+- primescore/routes/favourites.py  (date-based upcoming fixture query)
+- primescore/routes/matches.py     (date-based upcoming fixture query)
+- change logs/api_changelog_04_26.txt
+- change logs/api_changelog_04_26.docx
+- change logs/api_changelog_04_27.txt
