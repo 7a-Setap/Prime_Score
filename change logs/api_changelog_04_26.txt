@@ -1,0 +1,26 @@
+API.PY CHANGE LOG (SIMPLIFIED)
+Date: 26 April 2026 | Total changes: 18
+
+ORIGINAL CHANGES
+----------------
+- Lines 159 (call_football_api()): Narrowed exception to requests.exceptions.RequestException
+- Lines 167–172 (call_football_api()): Wrapped response.json() in try/except ValueError
+- Lines 4, 89, 93 (_headers()): Replaced string-replace host extraction with urlparse().netloc
+- Lines 186, 196–212 (format_standings()): Added group_index parameter; warns when multiple groups are present
+- Lines 270–277 (compute_team_stats()): Pre-extracted home_goals/away_goals and coerced nulls before comparison
+- Lines 41–44, 242 (compute_team_stats()): Replaced hardcoded [:10] slice with max_matches parameter
+- Lines 27–40 (ENDPOINTS dict): Added headtohead, events, lineups, statistics, injuries, predictions
+- Lines 49–61 (call_football_api()): Added 5-minute in-memory TTL cache keyed on (endpoint, params)
+- Lines 270–273 (compute_team_stats()): Changed goals.get('home', 0) to goals.get('home') or 0
+- Lines 4, 89–90, 128–130, 183–189, 239–244 (All public functions): Added type hints to all function signatures
+- Lines 104–108, 221–231 (format_standings()): Extracted _safe() helper to replace repeated deep-chaining
+- Line 29 (ENDPOINTS dict): Added comment documenting the 'matches' alias
+- Lines 148, 155 (call_football_api()): Extracted url variable and shortened the log format string
+
+NEW ADDITIONS
+-------------
+- Lines 16–22 (Module level): API key presence check at import time
+- Lines 66–86 (_build_session()): Shared requests.Session with retry adapter (3 attempts, exponential back-off)
+- Lines 112–124 (_log_rate_limit()): Rate limit header logging with low-quota warning
+- Line 47 (Module level): FINISHED_STATUSES = frozenset({'FT','AET','PEN'})
+- Lines 196–202 (format_standings()): group_index bounds check raises ValueError on out-of-range input
