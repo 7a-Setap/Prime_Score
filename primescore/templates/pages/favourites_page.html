@@ -22,19 +22,38 @@
 
     <div class="section">
       <h3>Edit favourites</h3>
+
       <div class="form-group">
-        <label for="favTeams">Teams (comma separated names or IDs)</label>
-        <input type="text" id="favTeams" placeholder="Liverpool, Arsenal or 40, 42" />
+        <label>Teams <span style="color:var(--muted);font-weight:400;">(max 5)</span></label>
+        <div class="fav-tags" id="favTeamsTags"></div>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="favTeamsSearch" placeholder="Search for a team…" autocomplete="off" />
+          <div class="autocomplete-suggestions" id="favTeamsSuggestions" style="display:none"></div>
+        </div>
       </div>
+
       <div class="form-group">
-        <label for="favPlayers">Players (comma separated names with team for new players, or IDs)</label>
-        <input type="text" id="favPlayers" placeholder="Mohamed Salah - Liverpool, Bukayo Saka - Arsenal or 306, 1460" />
-        <p class="subtitle">Saved players can stay as plain names when you edit favourites later.</p>
+        <label>Players <span style="color:var(--muted);font-weight:400;">(max 10)</span></label>
+        <div class="fav-tags" id="favPlayersTags"></div>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="favPlayersTeamSearch" placeholder="Search a team to browse their players…" autocomplete="off" />
+          <div class="autocomplete-suggestions" id="favPlayersTeamSuggestions" style="display:none"></div>
+        </div>
+        <div id="favPlayersSquad" style="display:none">
+          <p id="favPlayersSquadLabel" class="squad-label"></p>
+          <div id="favPlayersSquadList" class="squad-list"></div>
+        </div>
       </div>
+
       <div class="form-group">
-        <label for="favLeagues">Leagues (comma separated names or codes)</label>
-        <input type="text" id="favLeagues" placeholder="Premier League, Champions League or PL, CL" />
+        <label>Leagues <span style="color:var(--muted);font-weight:400;">(max 3)</span></label>
+        <div class="fav-tags" id="favLeaguesTags"></div>
+        <div class="autocomplete-wrapper">
+          <input type="text" id="favLeaguesSearch" placeholder="Search for a league…" autocomplete="off" />
+          <div class="autocomplete-suggestions" id="favLeaguesSuggestions" style="display:none"></div>
+        </div>
       </div>
+
       <button onclick="PrimeScoreApp.saveFavourites()" class="btn-primary">Save Favourites</button>
       <p class="error-message" id="favMsg"></p>
     </div>

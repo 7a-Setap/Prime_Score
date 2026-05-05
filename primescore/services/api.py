@@ -40,12 +40,30 @@ _MAX_MATCHES_DEFAULT = 10
 FINISHED_STATUSES = frozenset({"FT", "AET", "PEN"})
 
 _response_cache: dict = {}
-_cache_ttl: int = 300  # seconds
+
+_CACHE_TTL_BY_ENDPOINT: dict = {
+    "fixtures":    300,      # 5 min  – live scores, upcoming, results
+    "matches":     300,      # 5 min  – alias for fixtures
+    "standings":   3600,     # 1 hour – league tables
+    "teams":       86400,    # 24 h   – team info / search
+    "players":     86400,    # 24 h   – player info / squad lists
+    "leagues":     86400,    # 24 h   – league search / resolve
+    "injuries":    1800,     # 30 min
+    "predictions": 1800,     # 30 min
+}
+_CACHE_TTL_DEFAULT: int = 300
+
+
+def _cache_ttl_for(endpoint: str) -> int:
+    return _CACHE_TTL_BY_ENDPOINT.get(endpoint, _CACHE_TTL_DEFAULT)
 
 
 def _cache_get(key: tuple) -> Optional[dict]:
     entry = _response_cache.get(key)
-    if entry and (_time.monotonic() - entry["ts"]) < _cache_ttl:
+    if not entry:
+        return None
+    endpoint = key[0]
+    if (_time.monotonic() - entry["ts"]) < _cache_ttl_for(endpoint):
         return entry["data"]
     return None
 
