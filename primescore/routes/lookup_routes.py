@@ -629,3 +629,81 @@ def resolve_league():
         return jsonify({"error": "League not found"}), 404
 
     return jsonify(league), 200
+
+
+@utils_bp.route("/teams/<int:team_id>/players", methods=["GET"])
+def get_team_players(team_id):
+    data = None
+    for season in (CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2):
+        data = call_football_api("players", {"team": team_id, "season": season})
+        if data and data.get("response"):
+            break
+
+    rate_limited = rate_limit_response(data)
+    if rate_limited:
+        return rate_limited
+
+    players = []
+    for item in (data or {}).get("response", []):
+        player = item.get("player", {})
+        stats = (item.get("statistics") or [{}])[0]
+        players.append({
+            "id": player.get("id"),
+            "name": player.get("name"),
+            "position": (stats.get("games") or {}).get("position"),
+        })
+    return jsonify({"players": players}), 200
+
+
+@utils_bp.route("/resolve/team-by-id", methods=["GET"])
+def resolve_team_by_id():
+    team_id = normalise_query_value(request.args.get("id"))
+    if not team_id:
+        return jsonify({"error": "id required"}), 400
+
+    team = resolve_team_reference(team_id)
+    rate_limited = rate_limit_response(team)
+    if rate_limited:
+        return rate_limited
+    if not team:
+        return jsonify({"error": "Team not found"}), 404
+
+    return jsonify({"id": team.get("id"), "name": team.get("name"), "crest": team.get("crest")}), 200
+
+
+@utils_bp.route("/resolve/player-by-id", methods=["GET"])
+def resolve_player_by_id():
+    player_id = normalise_query_value(request.args.get("id"))
+    if not player_id:
+        return jsonify({"error": "id required"}), 400
+
+    data = None
+    for season in (CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2):
+        data = call_football_api("players", {"id": player_id, "season": season})
+        if data and data.get("response"):
+            break
+
+    rate_limited = rate_limit_response(data)
+    if rate_limited:
+        return rate_limited
+    if not data or not data.get("response"):
+        return jsonify({"error": "Player not found"}), 404
+
+    player = data["response"][0].get("player", {})
+    return jsonify({"id": player.get("id"), "name": player.get("name")}), 200
+
+
+@utils_bp.route("/resolve/league-by-id", methods=["GET"])
+def resolve_league_by_id():
+    league_id = normalise_query_value(request.args.get("id"))
+    if not league_id:
+        return jsonify({"error": "id required"}), 400
+
+    league = resolve_league_reference(league_id)
+    rate_limited = rate_limit_response(league)
+    if rate_limited:
+        return rate_limited
+    if not league:
+        return jsonify({"error": "League not found"}), 404
+
+    return jsonify({"id": league.get("id"), "name": league.get("name")}), 200

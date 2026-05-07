@@ -298,9 +298,10 @@
   async function loadFavourites() {
     try {
       const data = await PrimeScoreApp.apiFetch("/api/favourites");
-      const teamIds = (data.favourite_teams || []).map(String);
-      const playerIds = (data.favourite_players || []).map(String);
-      const leagueIds = (data.favourite_leagues || []).map(String);
+      // Use the numeric ID / code fields — favourite_teams/players/leagues contain display names
+      const teamIds = (data.favourite_team_ids || []).map(String);
+      const playerIds = (data.favourite_player_ids || []).map(String);
+      const leagueIds = (data.favourite_league_codes || data.favourite_leagues || []).map(String);
 
       const [teams, players, leagues] = await Promise.all([
         Promise.all(teamIds.map(resolveTeam)),
