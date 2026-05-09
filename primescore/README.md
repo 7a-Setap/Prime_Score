@@ -70,6 +70,11 @@ Optional:
 - `SECRET_KEY`
 - `CURRENT_SEASON`
 - `FLASK_DEBUG`
+- `SMTP_HOST`       (e.g. sandbox.smtp.mailtrap.io — leave blank to disable email)
+- `SMTP_PORT`       (default: 587)
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `SMTP_FROM`       (defaults to SMTP_USER if not set)
 
 Default database values in `config.py`:
 
@@ -125,6 +130,12 @@ $env:DB_NAME="primescore"
 $env:DB_USER="postgres"
 $env:DB_PASSWORD="YOUR_POSTGRES_PASSWORD"
 $env:DB_PORT="5432"
+
+# Optional — required only for email notifications
+$env:SMTP_HOST="sandbox.smtp.mailtrap.io"
+$env:SMTP_PORT="587"
+$env:SMTP_USER="your_mailtrap_username"
+$env:SMTP_PASSWORD="your_mailtrap_password"
 ```
 
 ## Running the app
@@ -396,7 +407,8 @@ Implemented behaviour:
 Consequences or side-effects:
 
 - profile updates also update session values where needed
-- notification preferences are stored, but real push delivery is not implemented
+- a demo notification button fires a browser notification and sends an email
+  via SMTP (Mailtrap sandbox recommended for local development)
 
 Main code:
 
@@ -583,6 +595,7 @@ Why it matters:
 - load profile data
 - update profile fields
 - change password
+- send test notification (browser alert + SMTP email)
 
 `routes/notification_routes.py`
 
@@ -676,7 +689,7 @@ Important files:
 - `stats_handlers.js`
   - dedicated Statistics page searches, stat requests, and rendering
 - `notification_handlers.js`
-  - notification settings form
+  - notification settings form and demo test notification button
 - `profile_handlers.js`
   - profile editing and password change flows
 - `league_search_handlers.js`
@@ -718,6 +731,11 @@ Hard refresh:
 ```text
 Ctrl + F5
 ```
+
+### Test notification says "Email could not be sent"
+The SMTP environment variables are not set or are incorrect.
+For a local demo, sign up at https://mailtrap.io, create a sandbox inbox,
+and copy the SMTP credentials from the inbox SMTP Settings tab.
 
 ### Fixtures or current-season data look empty
 

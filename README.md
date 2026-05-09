@@ -49,6 +49,11 @@ Usually needed:
 Optional:
 - `SECRET_KEY`
 - `CURRENT_SEASON`
+- `SMTP_HOST`       (e.g. sandbox.smtp.mailtrap.io)
+- `SMTP_PORT`       (default: 587)
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `SMTP_FROM`       (defaults to SMTP_USER if not set)
 
 Default database values in `config.py` are:
 - host: `localhost`
@@ -98,6 +103,10 @@ $env:DB_NAME="primescore"
 $env:DB_USER="postgres"
 $env:DB_PASSWORD="YOUR_POSTGRES_PASSWORD"
 $env:DB_PORT="5432"
+$env:SMTP_HOST="sandbox.smtp.mailtrap.io"
+$env:SMTP_PORT="587"
+$env:SMTP_USER="your_mailtrap_username"
+$env:SMTP_PASSWORD="your_mailtrap_password"
 ```
 
 ### 8) Run the app
@@ -212,6 +221,12 @@ Hard refresh the browser:
 ```text
 Ctrl + F5
 ```
+
+### Test notification says "Email could not be sent"
+The SMTP environment variables are not set or are incorrect.
+For a local demo, sign up at https://mailtrap.io, create a sandbox inbox,
+and copy the SMTP credentials from the inbox settings page.
+
 
 ## Notes
 - The app serves both frontend and backend from Flask.
