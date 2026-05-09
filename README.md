@@ -98,6 +98,7 @@ psql -U postgres -d primescore -f db\schema.sql
 ### 7) Set the environment variables for the current PowerShell window
 ```powershell
 $env:FOOTBALL_API_KEY="YOUR_API_FOOTBALL_KEY"
+$env:CURRENT_SEASON="2024"
 $env:DB_HOST="localhost"
 $env:DB_NAME="primescore"
 $env:DB_USER="postgres"

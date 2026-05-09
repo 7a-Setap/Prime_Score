@@ -132,6 +132,7 @@ $env:DB_PASSWORD="YOUR_POSTGRES_PASSWORD"
 $env:DB_PORT="5432"
 
 # Optional — required only for email notifications
+$env:CURRENT_SEASON="2024" #fixes seasonal fallback issues 
 $env:SMTP_HOST="sandbox.smtp.mailtrap.io"
 $env:SMTP_PORT="587"
 $env:SMTP_USER="your_mailtrap_username"
