@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request, session
 
+from config import CURRENT_SEASON
 from services.football_api_client import call_football_api
 
 matches_bp = Blueprint("matches", __name__)
@@ -107,17 +108,17 @@ def get_results():
     if auth_error:
         return auth_error
 
-    params = {
-        "league": _resolve_league_id(request.args.get("league_id")),
-        "from": _date_offset_string(-60),
-        "to": _today_string(),
-        "status": "FT-AET-PEN",
-    }
-
+    league_id = _resolve_league_id(request.args.get("league_id"))
     team_id = request.args.get("team_id")
+
     if team_id:
-        params.pop("league", None)
-        params["team"] = team_id
+        params = {"team": team_id, "season": CURRENT_SEASON, "status": "FT-AET-PEN"}
+    else:
+        params = {
+            "league": league_id,
+            "season": CURRENT_SEASON,
+            "status": "FT-AET-PEN",
+        }
 
     data = call_football_api("fixtures", params)
     matches = [_map_match(match, include_scores=True) for match in (data or {}).get("response", [])]

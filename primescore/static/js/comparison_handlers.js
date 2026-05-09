@@ -394,11 +394,6 @@
             { key: "goals_scored", label: "Goals For" },
             { key: "goals_conceded", label: "Goals Against" },
             { key: "clean_sheets", label: "Clean Sheets" },
-            { key: "average_possession", label: "Avg Possession (%)" },
-            { key: "average_shots", label: "Avg Shots" },
-            { key: "average_shots_on_target", label: "Avg Shots on Target" },
-            { key: "average_fouls_committed", label: "Avg Fouls" },
-            { key: "average_corners", label: "Avg Corners" },
           ],
           (data, key) => data[key] ?? 0,
         );
@@ -451,13 +446,22 @@
         resultElement.innerHTML = renderComparisonTable(
           rows,
           [
+            { key: "appearances", label: "Appearances" },
             { key: "goals", label: "Goals" },
             { key: "assists", label: "Assists" },
-            { key: "appearances", label: "Appearances" },
+            { key: "minutes", label: "Minutes Played" },
+            { key: "shots", label: "Shots" },
+            { key: "shots_on_target", label: "Shots on Target" },
+            { key: "fouls_committed", label: "Fouls Committed" },
             { key: "yellow_cards", label: "Yellow Cards" },
             { key: "red_cards", label: "Red Cards" },
+            { key: "rating", label: "Avg Rating" },
           ],
-          (data, key, row) => (row.available ? (data[key] ?? 0) : null),
+          (data, key, row) => {
+            if (!row.available) return null;
+            if (key === "rating") return data[key] || null;
+            return data[key] ?? 0;
+          },
         );
       }
     } catch (error) {

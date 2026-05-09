@@ -254,16 +254,39 @@ def _display_favourites(row):
     player_names = row.get("favourite_player_names") or []
     league_names = row.get("favourite_league_names") or []
     league_codes = row.get("favourite_leagues") or []
+    team_ids = row.get("favourite_teams") or []
+    player_ids = row.get("favourite_players") or []
 
     if not league_names and league_codes:
         league_names = [LEAGUE_CODE_TO_NAME.get(str(code), str(code)) for code in league_codes]
 
+    # Old DB rows have empty name columns — resolve IDs to display names on the fly.
+    if not team_names and team_ids:
+        resolved = []
+        for tid in team_ids:
+            team = resolve_team_reference(str(tid))
+            if team and not is_rate_limited_payload(team):
+                resolved.append(team.get("name", str(tid)))
+            else:
+                resolved.append(str(tid))
+        team_names = resolved
+
+    if not player_names and player_ids:
+        resolved = []
+        for pid in player_ids:
+            player = resolve_player_reference(str(pid))
+            if player and not is_rate_limited_payload(player):
+                resolved.append(player.get("name", str(pid)))
+            else:
+                resolved.append(str(pid))
+        player_names = resolved
+
     return {
-        "favourite_teams": team_names or [str(team_id) for team_id in (row.get("favourite_teams") or [])],
-        "favourite_players": player_names or [str(player_id) for player_id in (row.get("favourite_players") or [])],
+        "favourite_teams": team_names,
+        "favourite_players": player_names,
         "favourite_leagues": league_names,
-        "favourite_team_ids": row.get("favourite_teams") or [],
-        "favourite_player_ids": row.get("favourite_players") or [],
+        "favourite_team_ids": team_ids,
+        "favourite_player_ids": player_ids,
         "favourite_league_codes": league_codes,
     }
 
@@ -394,10 +417,7 @@ def _load_league_matches(league_id, status, *, limit=5, randomize=False):
 def _load_team_matches(team_ids, status):
     aggregated_matches = []
     for team_id in team_ids:
-        if status == "NS":
-            params = {"team": team_id, "date": _date_offset_string(1)}
-        else:
-            params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
+        params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
         data = call_football_api("fixtures", params)
         if is_rate_limited_response(data):
             break
@@ -447,36 +467,77 @@ def _load_league_tables(league_contexts):
     return league_tables
 
 
+def _sum_player_stats_for_home(stats_list):
+    """Aggregate stats across all competition entries for a player (home-card version)."""
+    totals = {"goals": 0, "assists": 0, "appearances": 0, "minutes": 0,
+              "yellow_cards": 0, "red_cards": 0}
+    ratings = []
+    position = None
+    current_team = None
+
+    for stat in (stats_list or []):
+        games = stat.get("games") or {}
+        goals_data = stat.get("goals") or {}
+        cards_data = stat.get("cards") or {}
+
+        # NOTE: API-Football spells this field "appearences" (their typo)
+        totals["appearances"] += games.get("appearences") or 0
+        totals["minutes"] += games.get("minutes") or 0
+        totals["goals"] += goals_data.get("total") or 0
+        totals["assists"] += goals_data.get("assists") or 0
+        totals["yellow_cards"] += cards_data.get("yellow") or 0
+        totals["red_cards"] += cards_data.get("red") or 0
+
+        rating = games.get("rating")
+        if rating:
+            try:
+                ratings.append(float(rating))
+            except (ValueError, TypeError):
+                pass
+
+        if not position and games.get("position"):
+            position = games["position"]
+        if not current_team:
+            team_name = (stat.get("team") or {}).get("name")
+            if team_name:
+                current_team = team_name
+
+    totals["rating"] = f"{sum(ratings) / len(ratings):.2f}" if ratings else ""
+    return totals, position, current_team
+
+
 def _format_favourite_player_stat(player_id, fallback_name=""):
-    data = call_football_api(
-        "players",
-        {
-            "id": player_id,
-            "season": CURRENT_SEASON,
-        },
-    )
-    if is_rate_limited_response(data) or not data or not data.get("response"):
+    best_data = None
+    best_appearances = -1
+
+    for season in (CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2):
+        data = call_football_api("players", {"id": player_id, "season": season})
+        if is_rate_limited_response(data) or not data or not data.get("response"):
+            continue
+        player_entry = data["response"][0]
+        stats_list = player_entry.get("statistics") or []
+        totals, _, _ = _sum_player_stats_for_home(stats_list)
+        appearances = totals["appearances"]
+        if best_data is None or appearances > best_appearances:
+            best_data = player_entry
+            best_appearances = appearances
+        if appearances > 0:
+            break
+
+    if not best_data:
         return None
 
-    player_data = data["response"][0]
-    player = player_data.get("player", {})
-    statistics = (player_data.get("statistics") or [{}])[0]
+    player = best_data.get("player", {})
+    stats_list = best_data.get("statistics") or []
+    totals, position, current_team = _sum_player_stats_for_home(stats_list)
 
     return {
         "player_id": player_id,
         "player_name": player.get("name") or fallback_name or f"Player {player_id}",
         "photo": player.get("photo", ""),
-        "current_team": (statistics.get("team") or {}).get("name", ""),
-        "position": (statistics.get("games") or {}).get("position", ""),
-        "statistics": {
-            "goals": (statistics.get("goals") or {}).get("total", 0) or 0,
-            "assists": (statistics.get("goals") or {}).get("assists", 0) or 0,
-            "appearances": (statistics.get("games") or {}).get("appearances", 0) or 0,
-            "minutes": (statistics.get("games") or {}).get("minutes", 0) or 0,
-            "rating": (statistics.get("games") or {}).get("rating", "") or "",
-            "yellow_cards": (statistics.get("cards") or {}).get("yellow", 0) or 0,
-            "red_cards": (statistics.get("cards") or {}).get("red", 0) or 0,
-        },
+        "current_team": current_team or "",
+        "position": position or "",
+        "statistics": totals,
     }
 
 

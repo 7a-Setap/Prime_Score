@@ -234,6 +234,53 @@ def _format_official_team_statistics(team_id, stats_data):
     }
 
 
+def _sum_player_stats(statistics_list):
+    """Aggregate statistics across multiple team/competition entries for a player."""
+    totals = {
+        "goals": 0, "assists": 0, "appearances": 0, "minutes": 0,
+        "shots": 0, "shots_on_target": 0, "fouls_committed": 0,
+        "yellow_cards": 0, "red_cards": 0,
+    }
+    ratings = []
+    position = None
+    current_team = None
+
+    for stat in statistics_list:
+        games = stat.get("games") or {}
+        goals_data = stat.get("goals") or {}
+        cards_data = stat.get("cards") or {}
+        shots_data = stat.get("shots") or {}
+        fouls_data = stat.get("fouls") or {}
+
+        # API-Football uses the misspelled key "appearences" (not "appearances")
+        totals["appearances"] += games.get("appearences") or 0
+        totals["minutes"] += games.get("minutes") or 0
+        totals["goals"] += goals_data.get("total") or 0
+        totals["assists"] += goals_data.get("assists") or 0
+        totals["shots"] += shots_data.get("total") or 0
+        totals["shots_on_target"] += shots_data.get("on") or 0
+        totals["fouls_committed"] += fouls_data.get("committed") or 0
+        totals["yellow_cards"] += cards_data.get("yellow") or 0
+        totals["red_cards"] += cards_data.get("red") or 0
+
+        rating = games.get("rating")
+        if rating:
+            try:
+                ratings.append(float(rating))
+            except (ValueError, TypeError):
+                pass
+
+        if not position and games.get("position"):
+            position = games["position"]
+        if not current_team:
+            team_name = (stat.get("team") or {}).get("name")
+            if team_name:
+                current_team = team_name
+
+    totals["rating"] = f"{sum(ratings) / len(ratings):.2f}" if ratings else ""
+    return totals, position, current_team
+
+
 def _format_player_statistics_payload(player_id, player_data):
     player = player_data.get("player", {})
     statistics = (player_data.get("statistics") or [{}])[0]
@@ -246,7 +293,7 @@ def _format_player_statistics_payload(player_id, player_data):
         "statistics": {
             "goals": (statistics.get("goals") or {}).get("total", 0) or 0,
             "assists": (statistics.get("goals") or {}).get("assists", 0) or 0,
-            "appearances": (statistics.get("games") or {}).get("appearances", 0) or 0,
+            "appearances": (statistics.get("games") or {}).get("appearences", 0) or 0,
             "minutes": (statistics.get("games") or {}).get("minutes", 0) or 0,
             "rating": (statistics.get("games") or {}).get("rating", "") or "",
             "shots": (statistics.get("shots") or {}).get("total", 0) or 0,
@@ -311,9 +358,8 @@ def get_team_statistics(team_id):
 
     matches_data = call_football_api("matches", recent_match_params)
     recent_stats = compute_team_stats(team_id, team, matches_data)
-    advanced_stats = _collect_recent_team_advanced_stats(team_id, matches_data)
     if recent_stats["matches_played"] > 0:
-        response_payload = _merge_team_stats(recent_stats, advanced_stats)
+        response_payload = _merge_team_stats(recent_stats)
         _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
         return jsonify(response_payload), 200
 
@@ -329,11 +375,11 @@ def get_team_statistics(team_id):
         )
         formatted_official_stats = _format_official_team_statistics(team_id, official_stats)
         if formatted_official_stats:
-            response_payload = _merge_team_stats(formatted_official_stats, advanced_stats)
+            response_payload = _merge_team_stats(formatted_official_stats)
             _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
             return jsonify(response_payload), 200
 
-    response_payload = _merge_team_stats(recent_stats, advanced_stats)
+    response_payload = _merge_team_stats(recent_stats)
     _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
     return jsonify(response_payload), 200
 
@@ -345,17 +391,48 @@ def get_player_statistics(player_id):
     if cached_payload is not None:
         return jsonify(cached_payload), 200
 
-    data = call_football_api(
-        "players",
-        {
-            "id": player_id,
-            "season": CURRENT_SEASON,
-        },
-    )
+    best_data = None
+    best_appearances = -1
 
-    if not data or not data.get("response"):
+    for season in (CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2):
+        candidate = call_football_api("players", {"id": player_id, "season": season})
+        if not candidate or not candidate.get("response"):
+            continue
+
+        player_entry = candidate["response"][0]
+        stats_list = player_entry.get("statistics") or [{}]
+
+        totals, _, _ = _sum_player_stats(stats_list)
+        appearances = totals["appearances"]
+        if best_data is None or appearances > best_appearances:
+            best_data = player_entry
+            best_appearances = appearances
+        if appearances > 0:
+            break
+
+    if not best_data:
         return jsonify({"error": "Player not found"}), 404
 
-    response_payload = _format_player_statistics_payload(player_id, data["response"][0])
+    player = best_data.get("player") or {}
+    statistics_list = best_data.get("statistics") or [{}]
+
+    totals, position, current_team = _sum_player_stats(statistics_list)
+    # stats_available: True whenever the player was found.
+    # We only hide stats (N/A) when the player cannot be found at all.
+    # The API may return empty statistics under free-plan restrictions even
+    # when the player has real career data — in that case we show 0s, not N/A.
+    stats_available = best_appearances > 0
+
+    response_payload = {
+        "player_id": player_id,
+        "player_name": player.get("name", "Unknown"),
+        "current_team": current_team,
+        "position": position,
+        "statistics": totals,
+    }
+    if stats_available:
+        response_payload["stats_available"] = True
+    # When stats_available is False we omit the field entirely so the JS
+    # treats it as undefined (≠ false) and still renders 0s instead of N/A.
     _store_cache_entry(PLAYER_STATS_CACHE, cache_key, response_payload)
     return jsonify(response_payload), 200

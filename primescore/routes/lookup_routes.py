@@ -633,6 +633,26 @@ def resolve_league():
 
 @utils_bp.route("/teams/<int:team_id>/players", methods=["GET"])
 def get_team_players(team_id):
+    # player_squads is purpose-built for roster lookups: no season required,
+    # lower API quota cost, and returns position data directly.
+    squad_data = call_football_api("player_squads", {"team": team_id})
+    rate_limited = rate_limit_response(squad_data)
+    if rate_limited:
+        return rate_limited
+
+    if squad_data and squad_data.get("response"):
+        players = []
+        for squad in squad_data["response"]:
+            for player in squad.get("players", []):
+                players.append({
+                    "id": player.get("id"),
+                    "name": player.get("name"),
+                    "position": player.get("position"),
+                })
+        if players:
+            return jsonify({"players": players}), 200
+
+    # Fallback: season-based players endpoint
     data = None
     for season in (CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2):
         data = call_football_api("players", {"team": team_id, "season": season})
