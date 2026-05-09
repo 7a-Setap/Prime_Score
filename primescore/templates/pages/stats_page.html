@@ -25,7 +25,10 @@
       <div class="compare-inputs-dynamic">
         <div class="compare-input-group">
           <label for="teamStatsSearch">Team</label>
-          <input id="teamStatsSearch" type="text" placeholder="Type a team name or numeric ID" autocomplete="off" />
+          <div class="autocomplete-wrapper">
+            <input id="teamStatsSearch" type="text" placeholder="Search for a team…" autocomplete="off" />
+            <div class="autocomplete-suggestions" id="teamStatsSuggestions" style="display:none"></div>
+          </div>
         </div>
       </div>
 
@@ -34,16 +37,25 @@
     </div>
 
     <div id="playerStatsTab" class="tab-content" style="display:none">
-      <p class="subtitle">Type each player's team when searching by name. Numeric player IDs still work on their own.</p>
-
       <div class="compare-inputs-dynamic">
-        <div class="compare-input-group">
-          <label for="playerStatsTeamSearch">Player Team</label>
-          <input id="playerStatsTeamSearch" type="text" placeholder="Type the player's team" autocomplete="off" />
-        </div>
-        <div class="compare-input-group">
-          <label for="playerStatsSearch">Player</label>
-          <input id="playerStatsSearch" type="text" placeholder="Type a player name or numeric ID" autocomplete="off" />
+        <div class="compare-input-group" id="statsPlayerSlot">
+          <label>Player</label>
+          <div class="player-slot-selected" id="statsPlayerSelected" style="display:none">
+            <span class="fav-tag">
+              <span class="fav-tag-name" id="statsPlayerName"></span>
+              <button class="fav-tag-remove" id="statsPlayerClear" aria-label="Clear">×</button>
+            </span>
+          </div>
+          <div id="statsPlayerPicker">
+            <div class="autocomplete-wrapper">
+              <input type="text" id="playerStatsTeamSearch" placeholder="Search a team to pick a player…" autocomplete="off" />
+              <div class="autocomplete-suggestions" id="playerStatsTeamSuggestions" style="display:none"></div>
+            </div>
+            <div id="statsPlayerSquadPanel" style="display:none">
+              <p class="squad-label" id="statsPlayerSquadLabel"></p>
+              <div class="squad-list" id="statsPlayerSquadList"></div>
+            </div>
+          </div>
         </div>
       </div>
 

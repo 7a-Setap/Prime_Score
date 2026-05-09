@@ -1,4 +1,102 @@
 (function (PrimeScoreApp) {
+  // ── Shared dropdown helpers ──────────────────────────────────────────────
+
+  function hideSuggestions(id) {
+    const el = PrimeScoreApp.getById(id);
+    if (el) el.style.display = "none";
+  }
+
+  function showDropdown(containerId, items, onSelect, inputId) {
+    const container = PrimeScoreApp.getById(containerId);
+    if (!container) return;
+
+    if (!items.length) {
+      container.innerHTML = `<div class="suggestion-empty">No results found.</div>`;
+      container.style.display = "block";
+      return;
+    }
+
+    container.innerHTML = items
+      .map(
+        (t) =>
+          `<div class="suggestion-item" data-id="${PrimeScoreApp.escapeHtml(String(t.id))}" data-name="${PrimeScoreApp.escapeHtml(t.name)}">
+            ${t.crest ? `<img src="${PrimeScoreApp.escapeHtml(t.crest)}" class="suggestion-crest" alt="">` : ""}
+            <span class="suggestion-name">${PrimeScoreApp.escapeHtml(t.name)}</span>
+          </div>`
+      )
+      .join("");
+
+    container.style.display = "block";
+
+    container.querySelectorAll(".suggestion-item").forEach((el) => {
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        onSelect({ id: el.dataset.id, name: el.dataset.name });
+        container.style.display = "none";
+        const input = PrimeScoreApp.getById(inputId);
+        if (input) input.value = el.dataset.name;
+      });
+    });
+  }
+
+  async function fetchTeams(query) {
+    const data = await PrimeScoreApp.apiFetch(
+      `/api/search?q=${encodeURIComponent(query)}&type=teams`
+    );
+    return (data.teams || []).map((t) => ({ id: t.id, name: t.name, crest: t.crest }));
+  }
+
+  async function fetchSquad(teamId) {
+    const data = await PrimeScoreApp.apiFetch(`/api/teams/${encodeURIComponent(teamId)}/players`);
+    return data.players || [];
+  }
+
+  function renderSquad(listEl, players, onPlayerSelect) {
+    if (!players.length) {
+      listEl.innerHTML = `<p class="suggestion-empty">No squad data available.</p>`;
+      return;
+    }
+
+    const grouped = {};
+    players.forEach((p) => {
+      const pos = p.position || "Other";
+      (grouped[pos] = grouped[pos] || []).push(p);
+    });
+
+    const posOrder = ["Goalkeeper", "Defender", "Midfielder", "Attacker", "Other"];
+    const sorted = [
+      ...posOrder.filter((p) => grouped[p]),
+      ...Object.keys(grouped).filter((p) => !posOrder.includes(p)),
+    ];
+
+    listEl.innerHTML = sorted
+      .map(
+        (pos) => `
+        <div class="squad-position-group">
+          <span class="squad-position-label">${PrimeScoreApp.escapeHtml(pos)}s</span>
+          <div class="squad-players">
+            ${grouped[pos]
+              .map(
+                (p) =>
+                  `<button class="squad-player-btn" data-id="${p.id}" data-name="${PrimeScoreApp.escapeHtml(p.name)}">
+                    ${PrimeScoreApp.escapeHtml(p.name)}
+                  </button>`
+              )
+              .join("")}
+          </div>
+        </div>`
+      )
+      .join("");
+
+    listEl.querySelectorAll(".squad-player-btn").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        onPlayerSelect({ id: btn.dataset.id, name: btn.dataset.name })
+      );
+    });
+  }
+
+  // ── Stats tab switcher ───────────────────────────────────────────────────
+
   function showStatsTab(tabId, button) {
     const statsPage = PrimeScoreApp.getById("statsPage");
     if (!statsPage) {
@@ -144,33 +242,83 @@
 
   async function viewPlayerStats() {
     const resultElement = PrimeScoreApp.getById("individualPlayerStatsResult");
-    const teamInput = PrimeScoreApp.getById("playerStatsTeamSearch");
-    const playerInput = PrimeScoreApp.getById("playerStatsSearch");
+    const slot = PrimeScoreApp.getById("statsPlayerSlot");
+    const playerId = slot?.dataset.playerId;
 
-    if (resultElement) {
-      resultElement.innerHTML = "<p>Loading player statistics...</p>";
+    if (!playerId) {
+      if (resultElement)
+        resultElement.innerHTML = `<p class="error">Select a player using the squad picker above.</p>`;
+      return;
     }
 
-    try {
-      const resolvedPlayer = await PrimeScoreApp.resolvePlayerInput?.(teamInput, playerInput, "");
-      const playerStats = await PrimeScoreApp.apiFetch(`/api/players/${resolvedPlayer.id}/statistics`);
+    if (resultElement) resultElement.innerHTML = "<p>Loading player statistics...</p>";
 
-      if (resultElement) {
-        resultElement.innerHTML = renderPlayerStatsCard(playerStats);
-      }
+    try {
+      const playerStats = await PrimeScoreApp.apiFetch(`/api/players/${playerId}/statistics`);
+      if (resultElement) resultElement.innerHTML = renderPlayerStatsCard(playerStats);
     } catch (error) {
-      if (resultElement) {
+      if (resultElement)
         resultElement.innerHTML = `<p class="error">${PrimeScoreApp.escapeHtml(error.message || "Player statistics could not be loaded.")}</p>`;
-      }
+    }
+  }
+
+  async function loadStatsSquad(team) {
+    const squadPanel = PrimeScoreApp.getById("statsPlayerSquadPanel");
+    const squadLabel = PrimeScoreApp.getById("statsPlayerSquadLabel");
+    const squadList  = PrimeScoreApp.getById("statsPlayerSquadList");
+    if (!squadPanel || !squadLabel || !squadList) return;
+
+    squadLabel.textContent = `${team.name} — select a player:`;
+    squadList.innerHTML = `<p class="squad-label">Loading…</p>`;
+    squadPanel.style.display = "block";
+
+    try {
+      const players = await fetchSquad(team.id);
+      renderSquad(squadList, players, (player) => {
+        const slot = PrimeScoreApp.getById("statsPlayerSlot");
+        slot.dataset.playerId = player.id;
+        PrimeScoreApp.getById("statsPlayerName").textContent = player.name;
+        PrimeScoreApp.getById("statsPlayerSelected").style.display = "block";
+        PrimeScoreApp.getById("statsPlayerPicker").style.display = "none";
+      });
+    } catch {
+      squadList.innerHTML = `<p class="suggestion-empty">Could not load squad.</p>`;
     }
   }
 
   function initialiseStatsPage() {
-    const teamInput = PrimeScoreApp.getById("teamStatsSearch");
+    const teamInput   = PrimeScoreApp.getById("teamStatsSearch");
     const leagueFilter = PrimeScoreApp.getById("statsLeagueFilter");
     const playerTeamInput = PrimeScoreApp.getById("playerStatsTeamSearch");
-    const playerInput = PrimeScoreApp.getById("playerStatsSearch");
 
+    // Team autocomplete
+    if (teamInput) {
+      const searchTeams = PrimeScoreApp.debounce(async (query) => {
+        if (query.length < 3) { hideSuggestions("teamStatsSuggestions"); return; }
+        try {
+          const leagueFilter = PrimeScoreApp.getById("statsLeagueFilter")?.value || "";
+          const data = await PrimeScoreApp.apiFetch(
+            `/api/search?q=${encodeURIComponent(query)}&type=teams${leagueFilter ? `&league=${encodeURIComponent(leagueFilter)}` : ""}`
+          );
+          const items = (data.teams || []).map((t) => ({ id: t.id, name: t.name, crest: t.crest }));
+          showDropdown("teamStatsSuggestions", items, (team) => {
+            teamInput.dataset.teamId = String(team.id);
+            teamInput.dataset.resolvedName = team.name;
+          }, "teamStatsSearch");
+        } catch { hideSuggestions("teamStatsSuggestions"); }
+      }, 300);
+
+      teamInput.addEventListener("input", (e) => {
+        delete teamInput.dataset.teamId;
+        delete teamInput.dataset.resolvedName;
+        searchTeams(e.target.value.trim());
+      });
+      teamInput.addEventListener("blur", () =>
+        setTimeout(() => hideSuggestions("teamStatsSuggestions"), 150)
+      );
+    }
+
+    // Clear league filter resets team selection
     leagueFilter?.addEventListener("change", () => {
       if (teamInput) {
         delete teamInput.dataset.teamId;
@@ -178,16 +326,32 @@
       }
     });
 
-    playerTeamInput?.addEventListener("input", () => {
-      if (playerInput) {
-        delete playerInput.dataset.playerId;
-        delete playerInput.dataset.resolvedName;
-      }
-    });
+    // Player squad picker — team search
+    if (playerTeamInput) {
+      const searchPlayerTeam = PrimeScoreApp.debounce(async (query) => {
+        if (query.length < 3) { hideSuggestions("playerStatsTeamSuggestions"); return; }
+        try {
+          const items = await fetchTeams(query);
+          showDropdown("playerStatsTeamSuggestions", items, (team) => {
+            loadStatsSquad(team);
+          }, "playerStatsTeamSearch");
+        } catch { hideSuggestions("playerStatsTeamSuggestions"); }
+      }, 300);
 
-    playerInput?.addEventListener("input", () => {
-      delete playerInput.dataset.playerId;
-      delete playerInput.dataset.resolvedName;
+      playerTeamInput.addEventListener("input", (e) => searchPlayerTeam(e.target.value.trim()));
+      playerTeamInput.addEventListener("blur", () =>
+        setTimeout(() => hideSuggestions("playerStatsTeamSuggestions"), 150)
+      );
+    }
+
+    // Clear button resets squad picker
+    PrimeScoreApp.getById("statsPlayerClear")?.addEventListener("click", () => {
+      const slot = PrimeScoreApp.getById("statsPlayerSlot");
+      delete slot.dataset.playerId;
+      PrimeScoreApp.getById("statsPlayerSelected").style.display = "none";
+      PrimeScoreApp.getById("statsPlayerPicker").style.display = "block";
+      PrimeScoreApp.getById("statsPlayerSquadPanel").style.display = "none";
+      if (playerTeamInput) playerTeamInput.value = "";
     });
   }
 
