@@ -3,10 +3,13 @@ PrimeScore - Notification Settings routes (FR9)
 """
 
 import logging
+import smtplib
+from email.mime.text import MIMEText
 from flask import Blueprint, request, jsonify, session
 from datetime import datetime
 
 from db.connection import DBContext
+from config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
 
 notifications_bp = Blueprint('notifications', __name__)
 logger = logging.getLogger(__name__)
@@ -80,3 +83,51 @@ def update_notification_settings():
         return jsonify({'error': 'Could not save notification settings'}), 500
 
     return jsonify({'message': 'Notification settings saved'}), 200
+
+
+@notifications_bp.route('/notifications/test', methods=['POST'])
+def send_test_notification():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    # Fetch user email from DB
+    try:
+        with DBContext(dict_cursor=True) as (_, cur):
+            cur.execute('SELECT email FROM users WHERE user_id = %s', (session['user_id'],))
+            row = cur.fetchone()
+    except RuntimeError:
+        return jsonify({'error': 'Database unavailable'}), 503
+    except Exception:
+        logger.exception("send_test_notification: db error")
+        return jsonify({'error': 'Could not fetch user email'}), 500
+
+    if not row or not row.get('email'):
+        return jsonify({'error': 'No email address on your account'}), 400
+
+    recipient = row['email']
+
+    # Send email if SMTP is configured
+    if not SMTP_HOST or not SMTP_USER:
+        return jsonify({'message': 'Browser notification sent (SMTP not configured — email skipped)'}), 200
+
+    try:
+        msg = MIMEText(
+            "This is a test notification from PrimeScore.\n\n"
+            "Your notification settings are working correctly!\n\n"
+            "— The PrimeScore Team"
+        )
+        msg['Subject'] = '⚽ PrimeScore — Test Notification'
+        msg['From']    = SMTP_FROM or SMTP_USER
+        msg['To']      = recipient
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(msg['From'], [recipient], msg.as_string())
+
+    except Exception:
+        logger.exception("send_test_notification: SMTP error")
+        return jsonify({'error': 'Email could not be sent — check your SMTP settings'}), 500
+
+    return jsonify({'message': f'Test notification sent to {recipient}'}), 200

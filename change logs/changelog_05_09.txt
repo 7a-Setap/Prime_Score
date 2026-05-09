@@ -1,0 +1,239 @@
+PRIMESCORE CHANGE LOG
+Date: 09 May 2026 | Total changes: 27
+
+================================================================================
+BACKEND
+================================================================================
+
+routes/favourites_routes.py
+----------------------------
+ORIGINAL CHANGES
+- (_display_favourites): Fixed home page displaying raw numeric IDs (e.g. "40")
+  instead of team/player names. The favourite_team_names and
+  favourite_player_names DB columns were added with DEFAULT '{}', so existing
+  rows have empty arrays. The old fallback stringified the raw IDs directly.
+  Now resolves each ID to a display name on the fly via resolve_team_reference
+  and resolve_player_reference when the name columns are empty.
+    FROM: "favourite_teams": team_names or [str(tid) for tid in team_ids]
+    TO:   if not team_names and team_ids:
+              for tid in team_ids:
+                  team = resolve_team_reference(str(tid))
+                  resolved.append(team.get("name", str(tid)) if team else str(tid))
+              team_names = resolved
+
+- (_load_team_matches): Fixed home screen upcoming fixtures for favourite teams
+  returning empty results. The API rejects team + date without season; only
+  date-only queries are permitted without a season parameter.
+    FROM: if status == "NS":
+              params = {"team": team_id, "date": _date_offset_string(1)}
+          else:
+              params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
+    TO:   params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
+
+- (_format_favourite_player_stat): Rewrote home player stat card to fix three
+  issues: (1) only the first statistics entry was read (often Community Shield),
+  missing all Premier League/UCL data; (2) the API-Football "appearences" typo
+  meant appearances always returned 0; (3) no multi-season fallback meant
+  plan-restricted seasons returned nothing.
+    FROM: Single call for CURRENT_SEASON, reads statistics[0] only,
+          uses games.get("appearances") (wrong spelling)
+    TO:   Loop over (CURRENT_SEASON, CURRENT_SEASON-1, CURRENT_SEASON-2),
+          picks season with most appearances, aggregates all competition entries
+          via _sum_player_stats_for_home()
+
+NEW ADDITIONS
+- (_sum_player_stats_for_home): New helper that aggregates goals, assists,
+  appearances, minutes, yellow cards, red cards, and rating across all
+  competition entries for a player in a season. Uses the correct API-Football
+  spelling "appearences". Returns (totals, position, current_team).
+
+routes/lookup_routes.py
+------------------------
+ORIGINAL CHANGES
+- (get_team_players): Replaced the season-based players endpoint (required
+  season, multiple API calls due to plan fallbacks, prone to hitting rate
+  limits) with the player_squads endpoint as the primary source.
+  player_squads requires no season, costs one API call, and returns position
+  data directly. Falls back to the old players endpoint if squads returns
+  nothing.
+    FROM: Loop over 3 seasons calling players?team=<id>&season=<year>
+    TO:   Call player_squads?team=<id> first; fall back to players loop
+          only if squads returns an empty response
+
+routes/match_routes.py
+-----------------------
+ORIGINAL CHANGES
+- Added `from config import CURRENT_SEASON` import.
+
+- (get_results): Fixed /api/results returning no data. The API requires
+  season whenever league is specified; the old query used league + from/to
+  date range without season which the API silently rejects.
+    FROM: params = {
+              "league": league_id,
+              "from": _date_offset_string(-60),
+              "to": _today_string(),
+              "status": "FT-AET-PEN",
+          }
+    TO:   params = {
+              "league": league_id,
+              "season": CURRENT_SEASON,
+              "status": "FT-AET-PEN",
+          }
+
+- (get_fixtures): Restored date-based query for upcoming fixtures after a
+  regression introduced by the results fix. The fixtures endpoint does not
+  require season when querying by date only.
+
+routes/statistics_routes.py
+-----------------------------
+ORIGINAL CHANGES
+- (_format_player_statistics_payload): Fixed API-Football "appearences" typo.
+    FROM: (statistics.get("games") or {}).get("appearances", 0)
+    TO:   (statistics.get("games") or {}).get("appearences", 0)
+
+- (get_player_statistics): Full rewrite. Old version made a single API call
+  for CURRENT_SEASON and read statistics[0] only. New version tries up to 3
+  seasons, picks the one with the most appearances, and aggregates all
+  competition entries via _sum_player_stats(). Also fixes the stats_available
+  flag — previously set to False when appearances = 0, which caused the
+  comparison table to show N/A instead of zeros when API data was present but
+  plan-restricted. Now omits the field entirely when False so JS treats it as
+  undefined (still renders 0s rather than N/A).
+    FROM: Single call, statistics[0], stats_available = appearances > 0 always set
+    TO:   3-season loop, picks best season, _sum_player_stats() aggregation,
+          stats_available only included in response when True
+
+- (get_team_statistics): Removed call to _collect_recent_team_advanced_stats().
+  This function fired up to 5 individual fixture/statistics API calls per team
+  to compute avg possession, shots, fouls, and corners. With two teams being
+  compared this generated up to 10 extra API calls on top of all other
+  requests, consistently exceeding the free-plan quota (10 req/min) and
+  triggering a 20-second rate-limit backoff that blocked the squad picker.
+  The avg stat columns had already been removed from the comparison table.
+    FROM: advanced_stats = _collect_recent_team_advanced_stats(team_id, matches_data)
+          response_payload = _merge_team_stats(recent_stats, advanced_stats)
+    TO:   response_payload = _merge_team_stats(recent_stats)
+
+NEW ADDITIONS
+- (_sum_player_stats): New helper that iterates over all competition entries
+  in a player's statistics list and returns summed totals for goals, assists,
+  appearances, minutes, shots, shots_on_target, fouls_committed, yellow cards,
+  red cards, and average rating. Uses the API-Football "appearences" typo.
+  Returns (totals, position, current_team).
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/comparison_handlers.js
+----------------------------------
+ORIGINAL CHANGES
+- (compareTeamsMultiple): Removed 5 avg stat rows from the team comparison
+  table that were always returning 0 due to plan restrictions and whose data
+  was no longer being fetched from the backend.
+    REMOVED: { key: "average_possession",       label: "Avg Possession (%)" }
+             { key: "average_shots",             label: "Avg Shots" }
+             { key: "average_shots_on_target",   label: "Avg Shots on Target" }
+             { key: "average_fouls_committed",   label: "Avg Fouls" }
+             { key: "average_corners",           label: "Avg Corners" }
+
+- (comparePlayersMultiple): Expanded player comparison table from 3 stat rows
+  to 10 and fixed the value selector to handle rating separately (shows N/A
+  when empty string, not 0).
+    FROM: goals, assists, appearances
+          valueSelector: row.available ? (data[key] ?? 0) : null
+    TO:   appearances, goals, assists, minutes, shots, shots_on_target,
+          fouls_committed, yellow_cards, red_cards, rating
+          valueSelector: rating returns data[key] || null (N/A when empty);
+                         all others return data[key] ?? 0
+
+================================================================================
+NOTIFICATION SYSTEM — DEMO BUTTON (FR9)
+================================================================================
+
+config.py
+----------
+NEW ADDITIONS
+- Added SMTP configuration block read from environment variables:
+    SMTP_HOST, SMTP_PORT (default 587), SMTP_USER, SMTP_PASSWORD, SMTP_FROM
+  Allows email sending to be enabled for any environment by setting env vars.
+  Defaults to empty strings so the app starts without SMTP configured.
+
+routes/notification_routes.py
+------------------------------
+NEW ADDITIONS
+- Added imports: smtplib, MIMEText, and the 5 SMTP config values from config.
+
+- (send_test_notification): New POST /api/notifications/test route.
+  Fetches the logged-in user's email from the users table, then sends a
+  plaintext test email via STARTTLS SMTP. If SMTP is not configured (empty
+  SMTP_HOST / SMTP_USER) it returns a graceful success message so the browser
+  notification still works without email. Returns the recipient address in the
+  success response.
+    Fixed: initial query used WHERE id = %s; corrected to WHERE user_id = %s
+           to match the actual primary key column name in the users table.
+
+templates/pages/settings_page.html
+------------------------------------
+NEW ADDITIONS
+- Added "Test Notifications" section below the existing notification toggles.
+  Contains a subtitle explaining the button's purpose, the Send Test
+  Notification button (calls PrimeScoreApp.sendTestNotification()), and a
+  status message paragraph (id="testNotificationMessage").
+
+static/js/notification_handlers.js
+-------------------------------------
+NEW ADDITIONS
+- (sendTestNotification): New function wired to the demo button.
+  (1) Calls Notification.requestPermission() if permission is "default",
+      then fires new Notification("PrimeScore", { body: "..." }) if granted.
+  (2) Calls POST /api/notifications/test to send the email via the backend.
+  (3) Displays the server's success message in green or error in red below
+      the button using the testNotificationMessage element.
+  Exposed as PrimeScoreApp.sendTestNotification.
+
+================================================================================
+FRONTEND — STATISTICS PAGE
+================================================================================
+
+templates/pages/stats_page.html
+---------------------------------
+ORIGINAL CHANGES
+- (Team tab): Wrapped plain text input in an autocomplete-wrapper with a
+  suggestions dropdown div (id="teamStatsSuggestions"); updated placeholder
+  text from "Type a team name or numeric ID" to "Search for a team…"
+
+- (Player tab): Replaced two plain text inputs (player team + player name)
+  with the same squad picker widget used on the compare page. The new widget
+  consists of a team search autocomplete (id="playerStatsTeamSearch" +
+  id="playerStatsTeamSuggestions"), a squad panel that loads on team
+  selection grouped by position (id="statsPlayerSquadPanel"), and a selected
+  player tag chip with a clear button (id="statsPlayerSelected").
+  Also removed the subtitle instructing users to type numeric IDs manually.
+
+static/js/stats_handlers.js
+-----------------------------
+NEW ADDITIONS
+- (hideSuggestions): Hides a suggestions dropdown by ID.
+- (showDropdown): Renders a list of items as a suggestions dropdown and
+  wires mousedown selection; sets input value and fires onSelect callback.
+- (fetchTeams): Fetches /api/search?type=teams and returns mapped team items.
+- (fetchSquad): Fetches /api/teams/<id>/players and returns players array.
+- (renderSquad): Renders squad players grouped by position into a list
+  element; each player button fires onPlayerSelect on click.
+- (loadStatsSquad): Fetches and renders the squad for a selected team into
+  the stats page squad panel; on player click sets slot.dataset.playerId,
+  shows the selected tag, and hides the picker.
+
+ORIGINAL CHANGES
+- (initialiseStatsPage): Added debounced team autocomplete wiring for
+  teamStatsSearch (300 ms debounce, min 3 chars, respects league filter);
+  added debounced squad picker team search wiring for playerStatsTeamSearch;
+  added clear button listener that resets slot.dataset.playerId and restores
+  the picker panel.
+
+- (viewPlayerStats): Replaced resolvePlayerInput() call (which read two raw
+  text inputs) with slot.dataset.playerId set by the squad picker. Shows an
+  error message if no player has been selected yet.
+    FROM: resolvePlayerInput(teamInput, playerInput, "") → resolvedPlayer.id
+    TO:   statsPlayerSlot.dataset.playerId

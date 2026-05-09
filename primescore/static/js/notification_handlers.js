@@ -35,6 +35,40 @@
     }
   }
 
+  async function sendTestNotification() {
+    const msgEl = PrimeScoreApp.getById("testNotificationMessage");
+    if (msgEl) { msgEl.textContent = ""; msgEl.className = "error-message"; }
+
+    // 1. Request browser notification permission and fire one
+    if ("Notification" in window) {
+      let permission = Notification.permission;
+      if (permission === "default") {
+        permission = await Notification.requestPermission();
+      }
+      if (permission === "granted") {
+        new Notification("PrimeScore", {
+          body: "⚽ Test notification — your alerts are working!",
+          icon: "/static/img/logo.png",
+        });
+      }
+    }
+
+    // 2. Send email via backend
+    try {
+      const data = await PrimeScoreApp.apiFetch("/api/notifications/test", { method: "POST" });
+      if (msgEl) {
+        msgEl.textContent = data.message || "Test notification sent!";
+        msgEl.style.color = "var(--primary)";
+      }
+    } catch (err) {
+      if (msgEl) {
+        msgEl.textContent = err.message || "Could not send test notification.";
+        msgEl.style.color = "";
+      }
+    }
+  }
+
   PrimeScoreApp.loadSettings = loadSettings;
   PrimeScoreApp.saveSettings = saveSettings;
+  PrimeScoreApp.sendTestNotification = sendTestNotification;
 })(window.PrimeScoreApp);

@@ -32,3 +32,12 @@ FOOTBALL_API_KEY = os.environ.get("FOOTBALL_API_KEY", "")
 FOOTBALL_API_BASE = "https://v3.football.api-sports.io"
 FOOTBALL_API_TIMEOUT = 10
 CURRENT_SEASON = int(os.environ.get("CURRENT_SEASON", str(_default_current_season())))
+
+# SMTP — set these environment variables to enable email notifications.
+# For a local demo, Mailtrap (https://mailtrap.io) works out of the box:
+# sign up free, copy the SMTP credentials from your inbox, and set them below.
+SMTP_HOST     = os.environ.get("SMTP_HOST", "")
+SMTP_PORT     = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER     = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM     = os.environ.get("SMTP_FROM", SMTP_USER)
