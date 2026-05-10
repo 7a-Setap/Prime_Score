@@ -28,6 +28,10 @@
     <div class="section">
       <div class="section-header">
         <h3>Live Matches</h3>
+        <div class="match-feed-toggle">
+          <button id="toggleAllMatches" class="tab-btn active" onclick="PrimeScoreApp.setMatchFeedMode('all')">All Matches</button>
+          <button id="toggleMyTeams" class="tab-btn" onclick="PrimeScoreApp.setMatchFeedMode('my_teams')">My Teams</button>
+        </div>
         <button onclick="refreshLiveMatches()" class="btn-secondary">Refresh</button>
       </div>
       <div id="liveMatchesHome" class="matches-grid"></div>

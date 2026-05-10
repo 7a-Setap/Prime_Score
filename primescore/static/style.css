@@ -393,6 +393,11 @@ label,
   margin-left: auto;
 }
 
+.match-feed-toggle {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
 .league-switcher-label {
   min-width: 110px;
   text-align: center;

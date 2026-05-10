@@ -97,13 +97,14 @@ def reset_home_screen_cache():
     HOME_SCREEN_CACHE.clear()
 
 
-def _cache_home_payload_key(user_id, selected_league, favourites_row):
+def _cache_home_payload_key(user_id, selected_league, favourites_row, match_feed_mode="all"):
     row = favourites_row or {}
     selected = selected_league or {}
 
     return (
         user_id or 0,
         str(selected.get("code") or selected.get("id") or ""),
+        match_feed_mode,
         tuple(row.get("favourite_teams") or []),
         tuple(row.get("favourite_players") or []),
         tuple(row.get("favourite_leagues") or []),
@@ -398,26 +399,32 @@ def _load_filtered_live_matches(team_ids=None, league_ids=None):
 
 def _load_league_matches(league_id, status, *, limit=5, randomize=False):
     if status == "NS":
-        params = {"date": _date_offset_string(1)}
-    else:
-        params = {"league": league_id, "season": CURRENT_SEASON, "status": status}
+        # Free plan only allows date-only queries within ~2 days of today.
+        # No team or league filter is possible without season.
+        data = call_football_api("fixtures", {"date": _date_offset_string(1)})
+        if is_rate_limited_response(data):
+            return []
+        mapped_matches = [_map_fixture(m) for m in (data or {}).get("response", [])]
+        return _dedupe_and_slice(mapped_matches, limit=limit, randomize=randomize)
+
+    params = {"league": league_id, "season": CURRENT_SEASON, "status": status}
     data = call_football_api("fixtures", params)
     if is_rate_limited_response(data):
         return []
 
     mapped_matches = [_map_fixture(match) for match in (data or {}).get("response", [])]
-    return _dedupe_and_slice(
-        mapped_matches,
-        limit=limit,
-        reverse=status != "NS",
-        randomize=randomize,
-    )
+    return _dedupe_and_slice(mapped_matches, limit=limit, reverse=True, randomize=randomize)
 
 
 def _load_team_matches(team_ids, status):
     aggregated_matches = []
     for team_id in team_ids:
-        params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
+        if status == "NS":
+            # team + date requires season which the free plan restricts for future dates.
+            # Fall through to the league-level date query instead.
+            continue
+        else:
+            params = {"team": team_id, "season": CURRENT_SEASON, "status": status}
         data = call_football_api("fixtures", params)
         if is_rate_limited_response(data):
             break
@@ -544,13 +551,14 @@ def _format_favourite_player_stat(player_id, fallback_name=""):
 @favourites_bp.route("/home-screen", methods=["GET"])
 def get_home_screen():
     preferred_league_reference = request.args.get("league")
+    match_feed_mode = request.args.get("mode", "all")  # "all" or "my_teams"
     user_id = session.get("user_id")
     favourites_row = _get_saved_favourites_row(user_id) if user_id else None
     home_league = _get_home_league_context(
         preferred_reference=preferred_league_reference,
         favourites_row=favourites_row,
     )
-    cache_key = _cache_home_payload_key(user_id, home_league, favourites_row)
+    cache_key = _cache_home_payload_key(user_id, home_league, favourites_row, match_feed_mode)
     cached_payload = _get_cached_home_payload(cache_key)
     if cached_payload is not None:
         return jsonify(cached_payload), 200
@@ -573,19 +581,26 @@ def get_home_screen():
     elif not has_personalised_home:
         home_data["league_tables"] = _load_league_tables([home_league])
 
-    if favourite_team_ids:
-        home_data["live_matches"] = _load_filtered_live_matches(team_ids=set(favourite_team_ids))
-        home_data["upcoming_fixtures"] = _load_team_matches(favourite_team_ids, "NS")
-        home_data["recent_results"] = _load_team_matches(favourite_team_ids, "FT-AET-PEN")
-    elif favourite_league_codes:
-        selected_league_id = home_league["id"]
-        home_data["live_matches"] = _load_filtered_live_matches(league_ids={selected_league_id})
-        home_data["upcoming_fixtures"] = _load_league_matches(selected_league_id, "NS")
-        home_data["recent_results"] = _load_league_matches(selected_league_id, "FT-AET-PEN")
-    elif not has_personalised_home:
+    fallback_league_id = home_league["id"]
+    use_my_teams = match_feed_mode == "my_teams" and has_personalised_home
+
+    if use_my_teams:
+        # My Teams mode — show only favourite team/league matches
+        if favourite_team_ids:
+            home_data["live_matches"] = _load_filtered_live_matches(team_ids=set(favourite_team_ids))
+            home_data["upcoming_fixtures"] = _load_team_matches(favourite_team_ids, "NS")
+            home_data["recent_results"] = _load_team_matches(favourite_team_ids, "FT-AET-PEN")
+        elif favourite_league_codes:
+            selected_league_id = home_league["id"]
+            home_data["live_matches"] = _load_filtered_live_matches(league_ids={selected_league_id})
+            home_data["upcoming_fixtures"] = _load_league_matches(selected_league_id, "NS")
+            home_data["recent_results"] = _load_league_matches(selected_league_id, "FT-AET-PEN")
+        # In My Teams mode, no fallback — empty sections show "no matches for your teams"
+    else:
+        # All Matches mode — show general feed
         home_data["live_matches"] = _load_filtered_live_matches()
-        home_data["upcoming_fixtures"] = _load_league_matches(home_league["id"], "NS", limit=5, randomize=True)
-        home_data["recent_results"] = _load_league_matches(home_league["id"], "FT-AET-PEN", limit=5, randomize=True)
+        home_data["upcoming_fixtures"] = _load_league_matches(fallback_league_id, "NS", limit=5, randomize=True)
+        home_data["recent_results"] = _load_league_matches(fallback_league_id, "FT-AET-PEN", limit=5, randomize=True)
 
     for index, player_id in enumerate(favourite_player_ids):
         favourite_player_stat = _format_favourite_player_stat(

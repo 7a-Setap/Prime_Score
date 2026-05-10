@@ -250,6 +250,19 @@
     `;
   }
 
+  // ── Match feed toggle ───────────────────────────────────────────────────
+
+  async function setMatchFeedMode(mode) {
+    PrimeScoreApp.state.matchFeedMode = mode;
+
+    const allBtn = PrimeScoreApp.getById("toggleAllMatches");
+    const myBtn  = PrimeScoreApp.getById("toggleMyTeams");
+    if (allBtn) allBtn.classList.toggle("active", mode === "all");
+    if (myBtn)  myBtn.classList.toggle("active", mode === "my_teams");
+
+    await loadHome(true);
+  }
+
   async function loadHome(forceReload = false, preferredLeagueCode = null) {
     if (!forceReload && PrimeScoreApp.state.homeRequestPromise) {
       return PrimeScoreApp.state.homeRequestPromise;
@@ -258,7 +271,11 @@
     PrimeScoreApp.state.homeRequestPromise = (async () => {
       try {
         const leagueCode = preferredLeagueCode || PrimeScoreApp.state.homeLeagueCode || "";
-        const url = leagueCode ? `/api/home-screen?league=${encodeURIComponent(leagueCode)}` : "/api/home-screen";
+        const mode = PrimeScoreApp.state.matchFeedMode || "all";
+        const params = new URLSearchParams();
+        if (leagueCode) params.set("league", leagueCode);
+        params.set("mode", mode);
+        const url = `/api/home-screen?${params.toString()}`;
         const data = await PrimeScoreApp.apiFetch(url);
 
         if (data.selected_league?.code) {
@@ -300,6 +317,7 @@
   }
 
   PrimeScoreApp.showSummaryTab = showSummaryTab;
+  PrimeScoreApp.setMatchFeedMode = setMatchFeedMode;
   PrimeScoreApp.loadHome = loadHome;
   PrimeScoreApp.renderMatchCards = renderMatchCards;
   PrimeScoreApp.renderLeagueTables = renderLeagueTables;
