@@ -28,12 +28,7 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  font-family:
-    "Segoe UI",
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--background);
   color: var(--text);
   line-height: 1.5;
@@ -398,6 +393,11 @@ label,
   margin-left: auto;
 }
 
+.match-feed-toggle {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
 .league-switcher-label {
   min-width: 110px;
   text-align: center;
@@ -757,9 +757,7 @@ textarea:focus {
   font-size: 0.85rem;
   cursor: pointer;
   color: var(--text);
-  transition:
-    background 0.15s,
-    border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .squad-player-btn:hover {

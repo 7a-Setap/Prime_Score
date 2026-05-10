@@ -1,5 +1,5 @@
 PRIMESCORE CHANGE LOG
-Date: 10 May 2026 | Total changes: 11
+Date: 10 May 2026 | Total changes: 18
 
 ================================================================================
 BACKEND
@@ -8,22 +8,28 @@ BACKEND
 routes/favourites_routes.py
 ----------------------------
 ORIGINAL CHANGES
-- (_load_league_matches): Replaced NS status query with a date-only query for
-  upcoming fixtures.
 
-- (get_home_screen): Added fallback logic so live matches, upcoming fixtures,
-  and recent results always display even when the favourite team has no data.
-  Previously the sections came back empty if the favourite team had no matches
-  in the current season.
-    FROM: No fallback — sections empty if team-specific queries returned nothing
-    TO:   After team/league queries, if any section is still empty, falls back
-          to the home league date/season query:
-              if not home_data["live_matches"]:
-                  home_data["live_matches"] = _load_filtered_live_matches()
-              if not home_data["upcoming_fixtures"]:
-                  home_data["upcoming_fixtures"] = _load_league_matches(...)
-              if not home_data["recent_results"]:
-                  home_data["recent_results"] = _load_league_matches(...)
+
+- (_load_team_matches): NS branch now skips team-specific query and falls
+  through to the league-level date query.
+
+- (get_home_screen): Replaced silent fallback logic with an explicit match feed
+  mode system. Accepts a new "mode" query parameter ("all" or "my_teams").
+  "All Matches" mode loads the general date/league feed. "My Teams" mode loads
+  favourite team/league specific data with no fallback — empty sections show
+  a clear "no matches for your teams" message instead of silently swapping
+  to unrelated data.
+    FROM: Team-specific query with silent fallback to league data when empty
+    TO:   if use_my_teams:
+              load team/league specific matches, no fallback
+          else:
+              load general date/league feed
+
+- (_cache_home_payload_key): Added match_feed_mode to the cache key so "all"
+  and "my_teams" modes are cached separately. Previously both modes returned
+  the same cached response.
+    FROM: (user_id, league_code, team_ids, player_ids, ...)
+    TO:   (user_id, league_code, match_feed_mode, team_ids, player_ids, ...)
 
 routes/match_routes.py
 -----------------------
@@ -32,17 +38,52 @@ ORIGINAL CHANGES
   date-only query for tomorrow.
     FROM: params = {"league": league_id, "season": CURRENT_SEASON + 1,
                     "from": ..., "to": ...}
-          with fallback to {"date": _date_offset_string(1)}
-    TO:   params = {"date": _date_offset_string(1)}  # single clean call
+    TO:   params = {"date": _date_offset_string(1)}
 
 ================================================================================
 FRONTEND — TEMPLATES
 ================================================================================
 
+templates/pages/home_page.html
+--------------------------------
+NEW ADDITIONS
+- Added "All Matches | My Teams" toggle buttons to the Live Matches section
+  header. "All Matches" is the default and shows the general date-based feed.
+  "My Teams" filters to favourite team/league matches only. Both buttons use
+  the existing tab-btn styling with active state highlighting.
+
 templates/pages/fixtures_page.html
 ------------------------------------
 ORIGINAL CHANGES
 - Commented out the league filter dropdown on the Upcoming Fixtures page.
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/home_page_handlers.js
+---------------------------------
+NEW ADDITIONS
+- (setMatchFeedMode): New function wired to the All Matches / My Teams toggle
+  buttons. Updates PrimeScoreApp.state.matchFeedMode, toggles the active class
+  on the buttons, and calls loadHome(true) to reload with the new mode.
+  Exposed as PrimeScoreApp.setMatchFeedMode.
+
+ORIGINAL CHANGES
+- (loadHome): Updated URL construction to include the mode parameter.
+  Uses URLSearchParams to build the query string cleanly.
+    FROM: const url = leagueCode ? `/api/home-screen?league=...` : "/api/home-screen"
+    TO:   params.set("mode", mode); const url = `/api/home-screen?${params}`
+
+================================================================================
+FRONTEND — CSS
+================================================================================
+
+static/style.css
+-----------------
+NEW ADDITIONS
+- (.match-feed-toggle): Inline flex container with small gap used to wrap the
+  All Matches / My Teams toggle buttons in the Live Matches section header.
 
 ================================================================================
 FREE PLAN API LIMITATIONS DISCOVERED
@@ -55,5 +96,5 @@ session and have been worked around in the code:
   date parameter alone
 - team + date requires season — cannot filter fixtures by team with a date
   parameter alone
-- Date queries are restricted to today ± 2 days — querying dates further
+- Date queries are restricted to today +1 day only — querying dates further
   than 2 days ahead returns a plan error
