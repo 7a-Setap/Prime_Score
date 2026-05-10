@@ -3,7 +3,10 @@
     return (items || []).map((item) => String(item)).filter(Boolean);
   }
 
-  function applyFavouriteState(data, { preferNewestHomeLeague = false, selectedLeague = null } = {}) {
+  function applyFavouriteState(
+    data,
+    { preferNewestHomeLeague = false, selectedLeague = null } = {},
+  ) {
     const favouriteTeams = normaliseItems(data.favourite_teams);
     const favouritePlayers = normaliseItems(data.favourite_players);
     const favouriteLeagues = normaliseItems(data.favourite_leagues);
@@ -20,10 +23,12 @@
       favourite_league_codes: favouriteLeagueCodes,
     };
 
-    PrimeScoreApp.state.favouriteLeagueOptions = favouriteLeagues.map((name, index) => ({
-      name,
-      code: favouriteLeagueCodes[index] || name,
-    }));
+    PrimeScoreApp.state.favouriteLeagueOptions = favouriteLeagues.map(
+      (name, index) => ({
+        name,
+        code: favouriteLeagueCodes[index] || name,
+      }),
+    );
 
     if (selectedLeague?.code) {
       PrimeScoreApp.state.homeLeagueCode = String(selectedLeague.code);
@@ -31,16 +36,22 @@
     }
 
     const newestLeague = PrimeScoreApp.state.favouriteLeagueOptions.at(-1);
-    const currentLeagueStillSaved = PrimeScoreApp.state.favouriteLeagueOptions.some(
-      (league) => league.code === PrimeScoreApp.state.homeLeagueCode
-    );
+    const currentLeagueStillSaved =
+      PrimeScoreApp.state.favouriteLeagueOptions.some(
+        (league) => league.code === PrimeScoreApp.state.homeLeagueCode,
+      );
 
     if (preferNewestHomeLeague && newestLeague) {
       PrimeScoreApp.state.homeLeagueCode = newestLeague.code;
       PrimeScoreApp.state.homeLeagueName = newestLeague.name;
-    } else if (!PrimeScoreApp.state.homeLeagueCode || !currentLeagueStillSaved) {
-      PrimeScoreApp.state.homeLeagueCode = newestLeague?.code || PrimeScoreApp.state.homeLeagueCode || "";
-      PrimeScoreApp.state.homeLeagueName = newestLeague?.name || PrimeScoreApp.state.homeLeagueName || "";
+    } else if (
+      !PrimeScoreApp.state.homeLeagueCode ||
+      !currentLeagueStillSaved
+    ) {
+      PrimeScoreApp.state.homeLeagueCode =
+        newestLeague?.code || PrimeScoreApp.state.homeLeagueCode || "";
+      PrimeScoreApp.state.homeLeagueName =
+        newestLeague?.name || PrimeScoreApp.state.homeLeagueName || "";
     }
   }
 
@@ -62,11 +73,11 @@
             <div class="teams">${PrimeScoreApp.escapeHtml(match.home_team)} vs ${PrimeScoreApp.escapeHtml(match.away_team)}</div>
             <div class="score">${match.home_score ?? "-"} : ${match.away_score ?? "-"}</div>
             <div class="meta">${PrimeScoreApp.escapeHtml(match.competition || "")} - ${new Date(
-              match.date || match.match_date || ""
+              match.date || match.match_date || "",
             ).toLocaleString()}</div>
             ${match.status ? `<div class="status">${PrimeScoreApp.escapeHtml(match.status)}</div>` : ""}
           </div>
-        `
+        `,
       )
       .join("");
   }
@@ -98,7 +109,7 @@
             <td>${row.goal_difference}</td>
             <td>${row.points}</td>
           </tr>
-        `
+        `,
       )
       .join("");
 
@@ -120,7 +131,8 @@
   function renderFavouritePlayerCards(playerStats) {
     const section = PrimeScoreApp.getById("favouritePlayersSection");
     const container = PrimeScoreApp.getById("favouritePlayersHome");
-    const hasSavedPlayers = (PrimeScoreApp.state.favourites.favourite_players || []).length > 0;
+    const hasSavedPlayers =
+      (PrimeScoreApp.state.favourites.favourite_players || []).length > 0;
 
     if (!section || !container) {
       return;
@@ -135,7 +147,8 @@
     PrimeScoreApp.showElement(section, "block");
 
     if (!playerStats.length) {
-      container.innerHTML = '<p class="empty">No favourite player stats available right now.</p>';
+      container.innerHTML =
+        '<p class="empty">No favourite player stats available right now.</p>';
       return;
     }
 
@@ -160,7 +173,7 @@
             </div>
             ${player.statistics?.rating ? `<p class="subtitle">Rating: ${PrimeScoreApp.escapeHtml(player.statistics.rating)}</p>` : ""}
           </article>
-        `
+        `,
       )
       .join("");
   }
@@ -175,14 +188,18 @@
     const effectiveLeagueName =
       selectedLeague?.name ||
       PrimeScoreApp.state.homeLeagueName ||
-      favouriteLeagues.find((league) => league.code === PrimeScoreApp.state.homeLeagueCode)?.name ||
+      favouriteLeagues.find(
+        (league) => league.code === PrimeScoreApp.state.homeLeagueCode,
+      )?.name ||
       "Premier League";
 
     if (leagueName) {
       leagueName.textContent = effectiveLeagueName;
     }
 
-    const currentIndex = favouriteLeagues.findIndex((league) => league.code === PrimeScoreApp.state.homeLeagueCode);
+    const currentIndex = favouriteLeagues.findIndex(
+      (league) => league.code === PrimeScoreApp.state.homeLeagueCode,
+    );
     const hasMultipleLeagues = favouriteLeagues.length > 1;
 
     if (leaguePosition) {
@@ -209,9 +226,21 @@
       const data = await PrimeScoreApp.apiFetch("/api/favourites");
       applyFavouriteState(data, options);
 
-      PrimeScoreApp.getById("teamsCount")?.replaceChildren(document.createTextNode(String(PrimeScoreApp.state.favourites.favourite_teams.length)));
-      PrimeScoreApp.getById("playersCount")?.replaceChildren(document.createTextNode(String(PrimeScoreApp.state.favourites.favourite_players.length)));
-      PrimeScoreApp.getById("leaguesCount")?.replaceChildren(document.createTextNode(String(PrimeScoreApp.state.favourites.favourite_leagues.length)));
+      PrimeScoreApp.getById("teamsCount")?.replaceChildren(
+        document.createTextNode(
+          String(PrimeScoreApp.state.favourites.favourite_teams.length),
+        ),
+      );
+      PrimeScoreApp.getById("playersCount")?.replaceChildren(
+        document.createTextNode(
+          String(PrimeScoreApp.state.favourites.favourite_players.length),
+        ),
+      );
+      PrimeScoreApp.getById("leaguesCount")?.replaceChildren(
+        document.createTextNode(
+          String(PrimeScoreApp.state.favourites.favourite_leagues.length),
+        ),
+      );
 
       PrimeScoreApp.showSummaryTab?.("teams");
       renderHomeLeagueSwitcher(options.selectedLeague);
@@ -224,11 +253,18 @@
     event?.preventDefault?.();
 
     document.querySelectorAll(".summary-tab").forEach((button) => {
-      button.classList.toggle("active", button.textContent.toLowerCase().includes(which));
+      button.classList.toggle(
+        "active",
+        button.textContent.toLowerCase().includes(which),
+      );
     });
 
     const key =
-      which === "players" ? "favourite_players" : which === "leagues" ? "favourite_leagues" : "favourite_teams";
+      which === "players"
+        ? "favourite_players"
+        : which === "leagues"
+          ? "favourite_leagues"
+          : "favourite_teams";
     const items = PrimeScoreApp.state.favourites[key] || [];
     const content = PrimeScoreApp.getById("summaryContent");
 
@@ -244,7 +280,10 @@
     content.innerHTML = `
       <ul class="list">
         ${items
-          .map((item) => `<li><span>${PrimeScoreApp.escapeHtml(item.name || item)}</span></li>`)
+          .map(
+            (item) =>
+              `<li><span>${PrimeScoreApp.escapeHtml(item.name || item)}</span></li>`,
+          )
           .join("")}
       </ul>
     `;
@@ -257,18 +296,35 @@
 
     PrimeScoreApp.state.homeRequestPromise = (async () => {
       try {
-        const leagueCode = preferredLeagueCode || PrimeScoreApp.state.homeLeagueCode || "";
-        const url = leagueCode ? `/api/home-screen?league=${encodeURIComponent(leagueCode)}` : "/api/home-screen";
+        const leagueCode =
+          preferredLeagueCode || PrimeScoreApp.state.homeLeagueCode || "";
+        const url = leagueCode
+          ? `/api/home-screen?league=${encodeURIComponent(leagueCode)}`
+          : "/api/home-screen";
         const data = await PrimeScoreApp.apiFetch(url);
 
         if (data.selected_league?.code) {
-          PrimeScoreApp.state.homeLeagueCode = String(data.selected_league.code);
+          PrimeScoreApp.state.homeLeagueCode = String(
+            data.selected_league.code,
+          );
           PrimeScoreApp.state.homeLeagueName = data.selected_league.name || "";
         }
 
-        renderMatchCards(data.live_matches || [], "liveMatchesHome", "No live matches right now.");
-        renderMatchCards(data.upcoming_fixtures || [], "upcomingFixturesHome", "No upcoming fixtures.");
-        renderMatchCards(data.recent_results || [], "recentResultsHome", "No recent results.");
+        renderMatchCards(
+          data.live_matches || [],
+          "liveMatchesHome",
+          "No live matches right now.",
+        );
+        renderMatchCards(
+          data.upcoming_fixtures || [],
+          "upcomingFixturesHome",
+          "No upcoming fixtures.",
+        );
+        renderMatchCards(
+          data.recent_results || [],
+          "recentResultsHome",
+          "No recent results.",
+        );
         renderLeagueTables(data.league_tables || [], "leagueTablesHome");
         await loadFavouritesSummary({ selectedLeague: data.selected_league });
         renderFavouritePlayerCards(data.favourite_player_stats || []);
@@ -288,9 +344,14 @@
       return;
     }
 
-    const currentIndex = favouriteLeagues.findIndex((league) => league.code === PrimeScoreApp.state.homeLeagueCode);
-    const safeIndex = currentIndex >= 0 ? currentIndex : favouriteLeagues.length - 1;
-    const nextIndex = (safeIndex + direction + favouriteLeagues.length) % favouriteLeagues.length;
+    const currentIndex = favouriteLeagues.findIndex(
+      (league) => league.code === PrimeScoreApp.state.homeLeagueCode,
+    );
+    const safeIndex =
+      currentIndex >= 0 ? currentIndex : favouriteLeagues.length - 1;
+    const nextIndex =
+      (safeIndex + direction + favouriteLeagues.length) %
+      favouriteLeagues.length;
     const nextLeague = favouriteLeagues[nextIndex];
 
     PrimeScoreApp.state.homeLeagueCode = nextLeague.code;

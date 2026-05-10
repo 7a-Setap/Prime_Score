@@ -89,17 +89,12 @@ def get_fixtures():
     if auth_error:
         return auth_error
 
-    params = {"date": _date_offset_string(1)}
-
-    team_id = request.args.get("team_id")
-    if team_id:
-        params["team"] = team_id
-
-    data = call_football_api("fixtures", params)
-    matches = [_map_match(match) for match in (data or {}).get("response", [])]
+    # Free plan only supports date-only queries within ~2 days of today.
+    # team/league + date requires season; future seasons are plan-restricted.
+    data = call_football_api("fixtures", {"date": _date_offset_string(1)})
+    matches = [_map_match(m) for m in (data or {}).get("response", [])]
     matches.sort(key=lambda match: match.get("date") or "")
-
-    return jsonify({"fixtures": matches[:5]}), 200
+    return jsonify({"fixtures": matches[:10]}), 200
 
 
 @matches_bp.route("/results", methods=["GET"])

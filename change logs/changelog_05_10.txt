@@ -1,0 +1,59 @@
+PRIMESCORE CHANGE LOG
+Date: 10 May 2026 | Total changes: 11
+
+================================================================================
+BACKEND
+================================================================================
+
+routes/favourites_routes.py
+----------------------------
+ORIGINAL CHANGES
+- (_load_league_matches): Replaced NS status query with a date-only query for
+  upcoming fixtures.
+
+- (get_home_screen): Added fallback logic so live matches, upcoming fixtures,
+  and recent results always display even when the favourite team has no data.
+  Previously the sections came back empty if the favourite team had no matches
+  in the current season.
+    FROM: No fallback — sections empty if team-specific queries returned nothing
+    TO:   After team/league queries, if any section is still empty, falls back
+          to the home league date/season query:
+              if not home_data["live_matches"]:
+                  home_data["live_matches"] = _load_filtered_live_matches()
+              if not home_data["upcoming_fixtures"]:
+                  home_data["upcoming_fixtures"] = _load_league_matches(...)
+              if not home_data["recent_results"]:
+                  home_data["recent_results"] = _load_league_matches(...)
+
+routes/match_routes.py
+-----------------------
+ORIGINAL CHANGES
+- (get_fixtures): Replaced season + from/to range query with a simple
+  date-only query for tomorrow.
+    FROM: params = {"league": league_id, "season": CURRENT_SEASON + 1,
+                    "from": ..., "to": ...}
+          with fallback to {"date": _date_offset_string(1)}
+    TO:   params = {"date": _date_offset_string(1)}  # single clean call
+
+================================================================================
+FRONTEND — TEMPLATES
+================================================================================
+
+templates/pages/fixtures_page.html
+------------------------------------
+ORIGINAL CHANGES
+- Commented out the league filter dropdown on the Upcoming Fixtures page.
+
+================================================================================
+FREE PLAN API LIMITATIONS DISCOVERED
+================================================================================
+
+The following API-Football free plan restrictions were identified during this
+session and have been worked around in the code:
+
+- league + date requires season — cannot filter fixtures by league with a
+  date parameter alone
+- team + date requires season — cannot filter fixtures by team with a date
+  parameter alone
+- Date queries are restricted to today ± 2 days — querying dates further
+  than 2 days ahead returns a plan error
