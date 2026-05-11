@@ -1,0 +1,108 @@
+PRIMESCORE CHANGE LOG
+Date: 11 May 2026 | Total changes: 7
+Feature: Live Match Details — Yellow/Red Cards & Substitutions (closes FR3 gap)
+
+Spec reference (Main Document, Chapter 1, FR3):
+"The website should provide live match statistics while a match is in
+progress, including current score, match time, status, yellow/red cards,
+and substitutions."
+
+Previously the live match cards only showed score, status, and minute.
+Cards and substitutions were missing. This change adds an on-demand
+expandable timeline per live match so the user can view yellow cards,
+red cards, substitutions (and goals) without flooding the home screen
+with extra API calls on every load.
+
+================================================================================
+BACKEND — SERVICES
+================================================================================
+
+services/football_api_client.py
+---------------------------------
+NEW ADDITIONS
+
+- (ENDPOINTS): Added "fixture_events" -> "fixtures/events" so the client can
+  reach the API-Football match-events endpoint.
+
+- (_cache_ttl): "fixture_events" cached for 30 seconds. Short enough to keep
+  the timeline reasonably fresh during a live match, long enough to avoid
+  hammering the API if the user toggles the panel on/off repeatedly.
+
+================================================================================
+BACKEND — ROUTES
+================================================================================
+
+primescore/routes/match_routes.py
+----------------------------------
+NEW ADDITIONS
+
+- (_format_match_event): Internal helper that converts one fixtures/events
+  entry into a UI-friendly dict with: minute, extra_minute, team, player,
+  assist (used for the "in" name on substitutions), type, subtype, detail.
+  Normalises subtypes to one of: yellow_card, red_card, substitution, goal,
+  own_goal, penalty_goal — the frontend picks the icon from this.
+
+- (get_match_events): New GET /api/matches/<int:match_id>/events endpoint.
+  - Requires login.
+  - Calls fixture_events with {"fixture": match_id}.
+  - Returns 429 if API-Football is rate-limited.
+  - Sorts events chronologically by (minute, extra_minute).
+  - Returns {match_id, events: [...]} JSON.
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/home_page_handlers.js
+---------------------------------
+NEW ADDITIONS
+
+- (_isLiveMatch): Detects whether a match payload represents an in-progress
+  fixture (presence of minute counter, or status mentions live / in play /
+  first half / second half / half time / extra time).
+
+- (_eventIcon): Returns an emoji+span icon for a given event subtype
+  (🟨 yellow, 🟥 red, ⇄ substitution, ⚽ goal).
+
+- (_renderEventRow): Renders one <li class="event-row"> with minute, icon,
+  player name (or "OUT → IN" for substitutions), and the team.
+
+- (_toggleMatchEvents): Async on-click handler that lazy-fetches
+  /api/matches/<id>/events the first time a card is opened, caches the
+  result in the DOM panel (data-loaded="true"), and toggles visibility on
+  subsequent clicks.
+
+ORIGINAL CHANGES
+
+- (renderMatchCards): Live cards now get:
+    * a .match-card-live class (red left border)
+    * a .live-minute pill next to the score (e.g. "63'")
+    * a "View cards & subs" button under the meta row
+    * an empty .match-events-panel div that the toggle fills in on demand
+  Non-live cards are unchanged. Click handlers are wired up after the HTML
+  is inserted into the container.
+
+static/js/match_page_handlers.js
+---------------------------------
+ORIGINAL CHANGES
+
+- (renderMatchList): Now delegates to PrimeScoreApp.renderMatchCards when
+  available so the dedicated Live Matches page gets the same expandable
+  events timeline as the home screen. Falls back to the original simple
+  list if the home handler hasn't been loaded.
+
+================================================================================
+FRONTEND — CSS
+================================================================================
+
+static/style.css
+-----------------
+NEW ADDITIONS
+
+- .match-card-live           – red left border to flag live fixtures.
+- .live-minute               – red pill showing the in-game minute.
+- .match-events-toggle       – the "View cards & subs" button (compact).
+- .match-events-panel        – the collapsible container under the card.
+- .event-list / .event-row   – grid layout for the timeline (minute, icon,
+                               player, team).
+- .event-minute / .event-icon / .event-team – cell-level styling.
