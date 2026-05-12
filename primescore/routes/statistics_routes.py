@@ -358,8 +358,17 @@ def get_team_statistics(team_id):
 
     matches_data = call_football_api("matches", recent_match_params)
     recent_stats = compute_team_stats(team_id, team, matches_data)
+
+    # FR7: aggregate per-match advanced metrics (possession, shots, shots on
+    # target, fouls, corners) from the most recent finished fixtures. This
+    # costs ~3 extra API calls per request — bounded so we don't blow the
+    # rate limit, and the whole response is cached for 3 minutes anyway.
+    advanced_stats = _collect_recent_team_advanced_stats(
+        team_id, matches_data, limit=3,
+    )
+
     if recent_stats["matches_played"] > 0:
-        response_payload = _merge_team_stats(recent_stats)
+        response_payload = _merge_team_stats(recent_stats, advanced_stats)
         _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
         return jsonify(response_payload), 200
 
@@ -375,11 +384,11 @@ def get_team_statistics(team_id):
         )
         formatted_official_stats = _format_official_team_statistics(team_id, official_stats)
         if formatted_official_stats:
-            response_payload = _merge_team_stats(formatted_official_stats)
+            response_payload = _merge_team_stats(formatted_official_stats, advanced_stats)
             _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
             return jsonify(response_payload), 200
 
-    response_payload = _merge_team_stats(recent_stats)
+    response_payload = _merge_team_stats(recent_stats, advanced_stats)
     _store_cache_entry(TEAM_STATS_CACHE, cache_key, response_payload)
     return jsonify(response_payload), 200
 

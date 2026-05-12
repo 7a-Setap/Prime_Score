@@ -1,0 +1,49 @@
+PRIMESCORE CHANGE LOG
+Date: 11 May 2026 | Total changes: 1
+Feature: Wire up advanced team metrics on the Stats page (closes FR7 gap)
+
+Spec reference (Main Document, Chapter 1, FR7):
+"The users should have access to football stats, including team-based and
+player-based stats. The statistics should include common metrics: goals
+scored and conceded, possession, shots and shots on target, fouls
+committed, and corners."
+
+Previously, the Stats page → Team Stats tab rendered five FR7 metrics
+(Avg Possession, Avg Shots, Avg Shots on Target, Avg Fouls, Avg Corners)
+but every one of them came back as 0. The helper that fetches them
+(_collect_recent_team_advanced_stats) existed but was never invoked, so
+_merge_team_stats fell through to _empty_team_advanced_stats() and the
+zeros were rendered verbatim.
+
+Player-side FR7 metrics (shots, shots on target, fouls committed) were
+already wired and working.
+
+================================================================================
+BACKEND — ROUTES
+================================================================================
+
+primescore/routes/statistics_routes.py
+---------------------------------------
+ORIGINAL CHANGES
+
+- (get_team_statistics): Now calls _collect_recent_team_advanced_stats on
+  the matches_data we already fetched and passes the result as the
+  advanced_stats argument to _merge_team_stats. This populates:
+    * average_possession         (Ball Possession from /fixtures/statistics)
+    * average_shots              (Total Shots)
+    * average_shots_on_target    (Shots on Goal)
+    * average_fouls_committed    (Fouls)
+    * average_corners            (Corner Kicks)
+  …averaged across the last 3 finished fixtures for the team.
+
+  The call is made once before the branching logic so all three response
+  branches (recent stats / official season stats / fallback) get the same
+  advanced metrics merged in.
+
+API cost / rate-limit impact:
+- +3 calls to /fixtures/statistics per uncached team-stats request.
+- Whole response cached for 180 seconds in TEAM_STATS_CACHE, so reloading
+  the same team within 3 minutes is free.
+- limit=3 (not 5) was chosen to leave headroom under the API-Football
+  free plan's 10 requests/minute cap — bump to 5 in the call site if
+  smoother averages are preferred.
