@@ -1,0 +1,50 @@
+PRIMESCORE CHANGE LOG
+Date: 12 May 2026 | Total changes: 1
+Feature: Port-aware SMTP connection for test-notification email
+
+Background:
+The /api/notifications/test endpoint hard-coded smtplib.SMTP(...) followed
+by .starttls(). That handshake is correct for STARTTLS ports (25, 587,
+2525) but is WRONG for implicit-SSL port 465, which requires the socket
+to be SSL-wrapped from the very first byte. Connecting plain to a 465
+listener produces:
+
+    ssl.SSLError: [SSL: WRONG_VERSION_NUMBER] wrong version number
+
+…because the client sends SMTP plaintext while the server expects an SSL
+ClientHello, and the bytes don't decode as a TLS record. The previous
+code therefore silently broke for any user who configured SMTP_PORT=465
+(the canonical "SSL on connect" port advertised by most providers).
+
+================================================================================
+BACKEND — ROUTES
+================================================================================
+
+primescore/routes/notification_routes.py
+-----------------------------------------
+ORIGINAL CHANGES
+
+- (send_test_notification): The SMTP send block now branches on the
+  numeric port:
+    * SMTP_PORT == 465  →  smtplib.SMTP_SSL(host, port, timeout=10)
+                           (no .starttls() — the wrapper handles TLS
+                           during the socket connect).
+    * any other port    →  smtplib.SMTP(host, port, timeout=10), then
+                           ehlo() → starttls() → ehlo() → login().
+                           The second ehlo() after STARTTLS is required
+                           by RFC 3207 so the server re-advertises its
+                           capabilities (AUTH in particular) over the
+                           encrypted channel — some servers refuse AUTH
+                           if you skip it.
+  SMTP_PORT is parsed via int(); a non-numeric or missing value falls
+  back to 587 so the existing default keeps working.
+
+Why this matters for testing on different machines:
+- Port 465 now works end-to-end with Mailtrap and standard providers
+  (Gmail, Outlook etc.) instead of raising WRONG_VERSION_NUMBER.
+- Behaviour on the default port (587) is unchanged — same EHLO/STARTTLS
+  flow, just with the additional second EHLO that some strict servers
+  require.
+- For school/office laptops where outbound 25/465/587 are firewalled,
+  set SMTP_PORT=2525 (Mailtrap's firewall-friendly STARTTLS port);
+  the new code routes that through the else-branch automatically.
