@@ -120,11 +120,24 @@ def send_test_notification():
         msg['From']    = SMTP_FROM or SMTP_USER
         msg['To']      = recipient
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(msg['From'], [recipient], msg.as_string())
+        # Port 465 is implicit-SSL (connection wrapped from the start);
+        # ports 25 / 587 / 2525 use plain SMTP then upgrade with STARTTLS.
+        try:
+            port_int = int(SMTP_PORT)
+        except (TypeError, ValueError):
+            port_int = 587
+
+        if port_int == 465:
+            with smtplib.SMTP_SSL(SMTP_HOST, port_int, timeout=10) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(msg['From'], [recipient], msg.as_string())
+        else:
+            with smtplib.SMTP(SMTP_HOST, port_int, timeout=10) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(msg['From'], [recipient], msg.as_string())
 
     except Exception:
         logger.exception("send_test_notification: SMTP error")
