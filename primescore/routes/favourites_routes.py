@@ -18,7 +18,7 @@ from routes.lookup_routes import (
     resolve_player_reference,
     resolve_team_reference,
 )
-from services.football_api_client import call_football_api, format_standings, is_rate_limited_response
+from services.football_api_client import call_football_api, format_standings, is_in_backoff, is_rate_limited_response
 
 favourites_bp = Blueprint("favourites", __name__)
 logger = logging.getLogger(__name__)
@@ -70,6 +70,8 @@ def _empty_home_payload(selected_league=None):
             "name": LEAGUE_CODE_TO_NAME["PL"],
         },
         "favourite_player_stats": [],
+        "favourite_team_stats": [],
+        "favourite_league_stats": [],
     }
 
 
@@ -176,6 +178,29 @@ def _clean_reference_list(value):
     return [str(item).strip() for item in items if str(item).strip()]
 
 
+def _unpack_id_name_list(raw_list):
+    """Accept either plain IDs/strings or {id, name} dicts from the frontend.
+
+    Returns (string_refs, pre_known) where:
+    - string_refs  : plain string references suitable for _resolve_*_entries
+    - pre_known    : {str(id): name} for items whose name was provided by the
+                     client — these skip the API lookup on the backend.
+    """
+    string_refs = []
+    pre_known = {}
+    for item in (raw_list or []):
+        if isinstance(item, dict):
+            item_id = str(item.get("id", "")).strip()
+            item_name = str(item.get("name", "")).strip()
+            if item_id:
+                string_refs.append(item_id)
+                if item_name:
+                    pre_known[item_id] = item_name
+        else:
+            string_refs.append(str(item).strip())
+    return [r for r in string_refs if r], pre_known
+
+
 def _split_player_reference(reference):
     value = str(reference or "").strip()
     if not value:
@@ -189,11 +214,21 @@ def _split_player_reference(reference):
     return value, ""
 
 
-def _resolve_team_entries(references):
+def _resolve_team_entries(references, known_id_to_name=None):
+    known = known_id_to_name or {}
     team_ids = []
     team_names = []
 
     for reference in references:
+        raw = str(reference).strip()
+        # Already-resolved: numeric ID with a stored name → skip the API call
+        if raw.isdigit() and raw in known:
+            team_id = int(raw)
+            if team_id not in team_ids:
+                team_ids.append(team_id)
+                team_names.append(known[raw])
+            continue
+
         team = resolve_team_reference(reference)
         if is_rate_limited_payload(team):
             return team
@@ -207,7 +242,8 @@ def _resolve_team_entries(references):
     return {"ids": team_ids, "names": team_names}
 
 
-def _resolve_player_entries(references):
+def _resolve_player_entries(references, known_id_to_name=None):
+    known = known_id_to_name or {}
     player_ids = []
     player_names = []
 
@@ -215,6 +251,14 @@ def _resolve_player_entries(references):
         player_name, team_name = _split_player_reference(reference)
 
         if not player_name:
+            continue
+
+        # Already-resolved: numeric ID with a stored name → skip the API call
+        if player_name.isdigit() and player_name in known:
+            player_id = int(player_name)
+            if player_id not in player_ids:
+                player_ids.append(player_id)
+                player_names.append(known[player_name])
             continue
 
         player = resolve_player_reference(player_name, team_reference=team_name or None)
@@ -232,7 +276,8 @@ def _resolve_player_entries(references):
     return {"ids": player_ids, "names": player_names}
 
 
-def _resolve_league_entries(references):
+def _resolve_league_entries(references, known_id_to_name=None):
+    known = known_id_to_name or {}
     league_codes = []
     league_names = []
 
@@ -245,7 +290,13 @@ def _resolve_league_entries(references):
         if league["code"] in league_codes:
             continue
         league_codes.append(str(league["code"]))
-        league_names.append(league["name"])
+        # Prefer client-supplied name when the resolver couldn't find a real one
+        # (e.g. non-standard leagues whose numeric ID isn't in our local map).
+        resolved_name = league.get("name", "")
+        raw = str(reference).strip()
+        if known.get(raw) and (not resolved_name or resolved_name == raw):
+            resolved_name = known[raw]
+        league_names.append(resolved_name)
 
     return {"codes": league_codes, "names": league_names}
 
@@ -548,6 +599,76 @@ def _format_favourite_player_stat(player_id, fallback_name=""):
     }
 
 
+def _format_favourite_team_stat(team_id, fallback_name=""):
+    """Fetch the league standing for a single favourite team."""
+    data = call_football_api("standings", {"team": team_id, "season": CURRENT_SEASON})
+    if is_rate_limited_response(data) or not data or not data.get("response"):
+        return None
+
+    league_entry = (data["response"][0] or {}).get("league", {})
+    standings_groups = league_entry.get("standings") or []
+
+    team_standing = None
+    for group in standings_groups:
+        for entry in group:
+            if (entry.get("team") or {}).get("id") == team_id:
+                team_standing = entry
+                break
+        if team_standing:
+            break
+
+    if not team_standing:
+        return None
+
+    team_info = team_standing.get("team") or {}
+    all_stats = team_standing.get("all") or {}
+    goals = all_stats.get("goals") or {}
+
+    return {
+        "team_id": team_id,
+        "team_name": team_info.get("name") or fallback_name or f"Team {team_id}",
+        "team_crest": team_info.get("logo", ""),
+        "league_name": league_entry.get("name", ""),
+        "season": str(league_entry.get("season", CURRENT_SEASON)),
+        "position": team_standing.get("rank"),
+        "points": team_standing.get("points"),
+        "played": all_stats.get("played"),
+        "won": all_stats.get("win"),
+        "drawn": all_stats.get("draw"),
+        "lost": all_stats.get("lose"),
+        "goals_for": goals.get("for"),
+        "goals_against": goals.get("against"),
+        "goal_difference": team_standing.get("goalsDiff"),
+        "form": team_standing.get("form", ""),
+    }
+
+
+def _format_favourite_league_stat(league_code):
+    """Fetch the full standings for a favourite league and return a card-friendly summary."""
+    league_id = LEAGUE_CODE_TO_ID.get(str(league_code).upper())
+    if not league_id:
+        return None
+
+    league_name = LEAGUE_CODE_TO_NAME.get(str(league_code).upper(), league_code)
+    standings_data = call_football_api("standings", {"league": league_id, "season": CURRENT_SEASON})
+    if is_rate_limited_response(standings_data) or not standings_data:
+        return None
+
+    formatted = format_standings(standings_data)
+    if not formatted.get("standings"):
+        return None
+
+    league_raw = ((standings_data.get("response") or [{}])[0]).get("league", {})
+
+    return {
+        "league_code": league_code,
+        "league_name": formatted.get("competition") or league_name,
+        "league_logo": league_raw.get("logo", ""),
+        "season": formatted.get("season", str(CURRENT_SEASON)),
+        "top_teams": formatted["standings"][:5],
+    }
+
+
 @favourites_bp.route("/home-screen", methods=["GET"])
 def get_home_screen():
     preferred_league_reference = request.args.get("league")
@@ -602,17 +723,119 @@ def get_home_screen():
         home_data["upcoming_fixtures"] = _load_league_matches(fallback_league_id, "NS", limit=5, randomize=True)
         home_data["recent_results"] = _load_league_matches(fallback_league_id, "FT-AET-PEN", limit=5, randomize=True)
 
-    for index, player_id in enumerate(favourite_player_ids):
-        favourite_player_stat = _format_favourite_player_stat(
-            player_id,
-            fallback_name=favourite_player_names[index] if index < len(favourite_player_names) else "",
-        )
-        if not favourite_player_stat:
-            continue
-        home_data["favourite_player_stats"].append(favourite_player_stat)
+    # Lazy loading: only fetch stats for the FIRST item of each type on initial
+    # page load.  The remaining cards are fetched on demand by /api/favourite-stats
+    # as the user navigates with the ← → buttons, capping startup API calls at ≤3.
+    favourite_team_names = (favourites_row or {}).get("favourite_team_names") or []
 
-    _set_cached_home_payload(cache_key, home_data)
+    if favourite_player_ids:
+        first_player_stat = _format_favourite_player_stat(
+            favourite_player_ids[0],
+            fallback_name=favourite_player_names[0] if favourite_player_names else "",
+        )
+        if first_player_stat:
+            home_data["favourite_player_stats"].append(first_player_stat)
+
+    if favourite_team_ids:
+        first_team_stat = _format_favourite_team_stat(
+            favourite_team_ids[0],
+            fallback_name=favourite_team_names[0] if favourite_team_names else "",
+        )
+        if first_team_stat:
+            home_data["favourite_team_stats"].append(first_team_stat)
+
+    if favourite_league_codes:
+        first_league_stat = _format_favourite_league_stat(favourite_league_codes[0])
+        if first_league_stat:
+            home_data["favourite_league_stats"].append(first_league_stat)
+
+    # Only cache the payload when the API client is NOT in rate-limit backoff.
+    # If backoff is active some calls were skipped and returned empty arrays;
+    # caching that would poison subsequent requests for up to 45 seconds.
+    if not is_in_backoff():
+        _set_cached_home_payload(cache_key, home_data)
+    else:
+        logger.warning(
+            "Home screen built during rate-limit backoff — skipping cache to allow retry."
+        )
     return jsonify(home_data), 200
+
+
+@favourites_bp.route("/favourite-stats", methods=["GET"])
+def get_favourite_stat():
+    """Lazy-load the stat card for a single favourite item (team / player / league).
+
+    Query parameters:
+        type  – "team", "player", or "league"
+        id    – numeric team/player ID, or league code (e.g. "PL")
+    """
+    if "user_id" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    stat_type = request.args.get("type", "").strip().lower()
+    item_id = request.args.get("id", "").strip()
+
+    if not stat_type or not item_id:
+        return jsonify({"error": "Missing type or id parameter"}), 400
+
+    row = _get_saved_favourites_row(session["user_id"]) or {}
+
+    if stat_type == "team":
+        try:
+            team_id = int(item_id)
+        except ValueError:
+            return jsonify({"error": "Invalid team id"}), 400
+
+        saved_ids = [int(t) for t in (row.get("favourite_teams") or [])]
+        if team_id not in saved_ids:
+            return jsonify({"error": "Not in favourites"}), 404
+
+        team_names = row.get("favourite_team_names") or []
+        try:
+            idx = saved_ids.index(team_id)
+            fallback_name = team_names[idx] if idx < len(team_names) else ""
+        except ValueError:
+            fallback_name = ""
+
+        stat = _format_favourite_team_stat(team_id, fallback_name=fallback_name)
+        if not stat:
+            return jsonify({"error": "Could not load team stats (rate limited or no data)"}), 503
+        return jsonify(stat), 200
+
+    elif stat_type == "player":
+        try:
+            player_id = int(item_id)
+        except ValueError:
+            return jsonify({"error": "Invalid player id"}), 400
+
+        saved_ids = [int(p) for p in (row.get("favourite_players") or [])]
+        if player_id not in saved_ids:
+            return jsonify({"error": "Not in favourites"}), 404
+
+        player_names = row.get("favourite_player_names") or []
+        try:
+            idx = saved_ids.index(player_id)
+            fallback_name = player_names[idx] if idx < len(player_names) else ""
+        except ValueError:
+            fallback_name = ""
+
+        stat = _format_favourite_player_stat(player_id, fallback_name=fallback_name)
+        if not stat:
+            return jsonify({"error": "Could not load player stats (rate limited or no data)"}), 503
+        return jsonify(stat), 200
+
+    elif stat_type == "league":
+        saved_codes = [str(c).upper() for c in (row.get("favourite_leagues") or [])]
+        league_code = item_id.upper()
+        if league_code not in saved_codes:
+            return jsonify({"error": "Not in favourites"}), 404
+
+        stat = _format_favourite_league_stat(league_code)
+        if not stat:
+            return jsonify({"error": "Could not load league stats (rate limited or no data)"}), 503
+        return jsonify(stat), 200
+
+    return jsonify({"error": "Invalid type — use team, player or league"}), 400
 
 
 @favourites_bp.route("/favourites", methods=["GET"])
@@ -643,9 +866,16 @@ def update_favourites():
         return jsonify({"error": "Not authenticated"}), 401
 
     data = request.get_json(silent=True) or {}
-    team_references = _clean_reference_list(data.get("favourite_teams", []))
-    player_references = _clean_reference_list(data.get("favourite_players", []))
-    league_references = _clean_reference_list(data.get("favourite_leagues", []))
+
+    # Accept both plain IDs and {id, name} dicts from the frontend.
+    # Names supplied by the client avoid an API round-trip for every item.
+    team_references, team_pre_known = _unpack_id_name_list(data.get("favourite_teams", []))
+    player_references, player_pre_known = _unpack_id_name_list(data.get("favourite_players", []))
+    league_references, league_pre_known = _unpack_id_name_list(data.get("favourite_leagues", []))
+
+    team_references = _clean_reference_list(team_references)
+    player_references = _clean_reference_list(player_references)
+    league_references = _clean_reference_list(league_references)
 
     if len(team_references) > 5:
         return jsonify({"error": "You can save up to 5 favourite teams."}), 400
@@ -654,19 +884,43 @@ def update_favourites():
     if len(league_references) > 3:
         return jsonify({"error": "You can save up to 3 favourite leagues."}), 400
 
-    resolved_teams = _resolve_team_entries(team_references)
+    # Merge three sources of known names (DB row wins over client-supplied names
+    # to guard against accidental overwrites of verified data):
+    #   1. Names sent by the client for newly selected items (team_pre_known)
+    #   2. Names already stored in the DB for existing items (existing_row)
+    existing_row = _get_saved_favourites_row(session["user_id"]) or {}
+    db_team_id_to_name = {
+        str(tid): name
+        for tid, name in zip(
+            existing_row.get("favourite_teams") or [],
+            existing_row.get("favourite_team_names") or [],
+        )
+        if tid and name
+    }
+    db_player_id_to_name = {
+        str(pid): name
+        for pid, name in zip(
+            existing_row.get("favourite_players") or [],
+            existing_row.get("favourite_player_names") or [],
+        )
+        if pid and name
+    }
+    known_team_id_to_name = {**team_pre_known, **db_team_id_to_name}
+    known_player_id_to_name = {**player_pre_known, **db_player_id_to_name}
+
+    resolved_teams = _resolve_team_entries(team_references, known_id_to_name=known_team_id_to_name)
     if is_rate_limited_payload(resolved_teams):
         return jsonify({"error": "Rate limited by API-Football. Please retry shortly."}), 429
     if resolved_teams.get("error"):
         return jsonify({"error": resolved_teams["error"]}), 404
 
-    resolved_players = _resolve_player_entries(player_references)
+    resolved_players = _resolve_player_entries(player_references, known_id_to_name=known_player_id_to_name)
     if is_rate_limited_payload(resolved_players):
         return jsonify({"error": "Rate limited by API-Football. Please retry shortly."}), 429
     if resolved_players.get("error"):
         return jsonify({"error": resolved_players["error"]}), 404
 
-    resolved_leagues = _resolve_league_entries(league_references)
+    resolved_leagues = _resolve_league_entries(league_references, known_id_to_name=league_pre_known)
     if is_rate_limited_payload(resolved_leagues):
         return jsonify({"error": "Rate limited by API-Football. Please retry shortly."}), 429
     if resolved_leagues.get("error"):

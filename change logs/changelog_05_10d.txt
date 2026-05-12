@@ -1,0 +1,52 @@
+PRIMESCORE CHANGE LOG
+Date: 10 May 2026 | Total changes: 5
+Feature: My Favourites Card Switcher (one card at a time with ← → navigation)
+
+================================================================================
+FRONTEND — TEMPLATES
+================================================================================
+
+templates/pages/home_page.html
+--------------------------------
+ORIGINAL CHANGES
+- Added ← / → navigation buttons and a position label ("1 of 4") to the
+  My Favourites section header, mirroring the League Table switcher below.
+  Elements: #summaryPrev, #summaryPosition, #summaryNext inside a
+  .league-switcher div. Buttons call PrimeScoreApp.cycleSummaryItem(±1).
+- Removed the "cards-grid" class from #summaryContent — the section now shows
+  one card at a time so the grid layout is no longer needed.
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/home_page_handlers.js
+---------------------------------
+NEW ADDITIONS
+
+- (_getStatsForTab): Internal helper that returns the correct stats array
+  (favouriteTeamStats / favouritePlayerStats / favouriteLeagueStats) for a
+  given tab name.
+
+- (_renderSummaryNav): Internal helper that updates the ← / → button disabled
+  state and the "N of Total" position label in the switcher.
+
+- (_renderSummaryCard): Internal helper that renders a single card HTML string
+  for the given tab and index.
+
+- (cycleSummaryItem): Public function called by the ← / → buttons. Advances
+  the per-tab index by ±1 (wraps around), re-renders the single card, and
+  updates the nav. Exposed as PrimeScoreApp.cycleSummaryItem.
+
+ORIGINAL CHANGES
+
+- (showSummaryTab): Rewritten to show only a single card (the one at the
+  current per-tab index) instead of all cards at once. Now also:
+    - Sets PrimeScoreApp.state.summaryActiveTab so cycleSummaryItem knows
+      which tab is open.
+    - Initialises PrimeScoreApp.state.summaryIndex ({teams, players, leagues})
+      if not already present.
+    - Clamps the saved index to the valid range after data changes.
+    - Calls _renderSummaryNav to keep the position label and button state in sync.
+  Each tab keeps its own index, so switching from Players back to Teams
+  resumes at the same team you were viewing.

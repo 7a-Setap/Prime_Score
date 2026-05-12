@@ -1,0 +1,116 @@
+PRIMESCORE CHANGE LOG
+Date: 10 May 2026 | Total changes: 16
+Feature: Favourite Stat Cards — Home Page Redesign
+
+================================================================================
+BACKEND
+================================================================================
+
+routes/favourites_routes.py
+----------------------------
+NEW ADDITIONS
+
+- (_format_favourite_team_stat): New helper. Calls standings?team={id}&season=
+  for a single favourite team and returns its current league standing: position,
+  points, played, won, drawn, lost, goals for/against, goal difference, form
+  string, team crest, and league name.
+
+- (_format_favourite_league_stat): New helper. Calls standings?league={id}&
+  season= for a favourite league and returns the league name, logo, season,
+  and the top-5 teams from the standings (for the mini-table card).
+
+ORIGINAL CHANGES
+
+- (_empty_home_payload): Added "favourite_team_stats" and
+  "favourite_league_stats" keys (both default to []) so the response contract
+  is always consistent.
+
+- (get_home_screen): After populating favourite_player_stats, now also
+  populates favourite_team_stats (one API call per favourite team) and
+  favourite_league_stats (one API call per favourite league). Both lists are
+  cached with the rest of the home payload.
+
+================================================================================
+FRONTEND — TEMPLATES
+================================================================================
+
+templates/pages/home_page.html
+--------------------------------
+ORIGINAL CHANGES
+- Removed the separate "Favourite Players" section (favouritePlayersSection /
+  favouritePlayersHome). Player stat cards are now shown inside the unified
+  My Favourites section when the Players tab is active.
+- Renamed the favouritesSummary div to a proper .section with heading
+  "My Favourites".
+- summaryContent div now carries the "cards-grid" class so stat cards lay out
+  in the responsive grid automatically.
+- Tab onclick handlers updated from bare showSummaryTab() to
+  PrimeScoreApp.showSummaryTab() for consistency.
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/home_page_handlers.js
+---------------------------------
+NEW ADDITIONS
+
+- (renderFormDots): Converts a form string (e.g. "WWDLW") into coloured dot
+  spans: green for W, grey for D, red for L.
+
+- (renderTeamStatCard): Renders a full stat card for a favourite team showing
+  position, points, played, W/D/L, GF/GA/GD (in a 3-column grid), and a
+  form-dot row.
+
+- (renderPlayerStatCard): Extracted from the old renderFavouritePlayerCards
+  function. Renders a single player stat card (goals, assists, apps, minutes,
+  yellows, reds, rating). Now used by showSummaryTab instead of a separate
+  section.
+
+- (renderLeagueStatCard): Renders a card for a favourite league showing the
+  league name, logo, season, and a mini-standings table of the top 5 teams
+  with columns: #, Team (with tiny crest), P, Pts.
+
+ORIGINAL CHANGES
+
+- (showSummaryTab): Completely rewritten. Previously rendered a plain <ul>
+  name list. Now reads the relevant stats array from PrimeScoreApp.state and
+  renders the appropriate stat cards into summaryContent:
+    teams   → renderTeamStatCard for each entry in favouriteTeamStats
+    players → renderPlayerStatCard for each entry in favouritePlayerStats
+    leagues → renderLeagueStatCard for each entry in favouriteLeagueStats
+  Shows a "Loading…" message if favourites exist but stats haven't arrived yet,
+  or "No favourite X yet." if none are saved.
+
+- (loadHome): After receiving the home-screen response, now stores
+  data.favourite_team_stats, data.favourite_player_stats, and
+  data.favourite_league_stats into PrimeScoreApp.state before calling
+  loadFavouritesSummary (which triggers showSummaryTab). Removed the separate
+  renderFavouritePlayerCards call — player cards are handled by showSummaryTab.
+
+================================================================================
+FRONTEND — CSS
+================================================================================
+
+static/style.css
+-----------------
+NEW ADDITIONS
+
+- (.team-stat-card .stat-grid / .team-stat-grid): Overrides the default
+  stat-grid to use repeat(3, 1fr) so the nine team stats sit in three clean
+  rows: [Pos · Pts · Played] [Won · Drawn · Lost] [GF · GA · GD].
+
+- (.form-string): Flex row to hold form dots with a small gap and wrapping.
+
+- (.form-dot): Circular badge (1.4 rem, bold, white text) for individual form
+  letters. Coloured by modifier class:
+    .form-w — green  (--success / #22c55e)
+    .form-d — grey   (--muted   / #94a3b8)
+    .form-l — red    (--danger  / #ef4444)
+
+- (.mini-standings): Compact table used inside league stat cards. Full-width,
+  collapsed borders, small font, header row in muted colour, subtle row
+  dividers.
+
+- (.crest-xs): 1 rem × 1 rem crest image for team names inside the mini-
+  standings table.

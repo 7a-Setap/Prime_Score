@@ -176,7 +176,7 @@
   }
 
   const searchTeams = PrimeScoreApp.debounce(async function (query) {
-    if (query.length < 3) { hideSuggestions("favTeamsSuggestions"); return; }
+    if (query.length < 4) { hideSuggestions("favTeamsSuggestions"); return; }
     try {
       const data = await PrimeScoreApp.apiFetch(
         `/api/search?q=${encodeURIComponent(query)}&type=teams`,
@@ -186,10 +186,10 @@
         addFavItem("teams", item),
       );
     } catch { hideSuggestions("favTeamsSuggestions"); }
-  }, 300);
+  }, 500);
 
   const searchPlayersTeam = PrimeScoreApp.debounce(async function (query) {
-    if (query.length < 3) { hideSuggestions("favPlayersTeamSuggestions"); return; }
+    if (query.length < 4) { hideSuggestions("favPlayersTeamSuggestions"); return; }
     try {
       const data = await PrimeScoreApp.apiFetch(
         `/api/search?q=${encodeURIComponent(query)}&type=teams`,
@@ -199,10 +199,10 @@
         loadSquadForTeam(team);
       });
     } catch { hideSuggestions("favPlayersTeamSuggestions"); }
-  }, 300);
+  }, 500);
 
   const searchLeagues = PrimeScoreApp.debounce(async function (query) {
-    if (query.length < 3) { hideSuggestions("favLeaguesSuggestions"); return; }
+    if (query.length < 4) { hideSuggestions("favLeaguesSuggestions"); return; }
     try {
       const data = await PrimeScoreApp.apiFetch(
         `/api/search?q=${encodeURIComponent(query)}&type=competitions`,
@@ -212,7 +212,7 @@
         addFavItem("leagues", item),
       );
     } catch { hideSuggestions("favLeaguesSuggestions"); }
-  }, 300);
+  }, 500);
 
   function wireSearchInputs() {
     const configs = [
@@ -326,10 +326,11 @@
   async function saveFavourites(event) {
     event?.preventDefault();
 
+    // Send {id, name} pairs so the backend can store names without API lookups.
     const payload = {
-      favourite_teams: editState.teams.map((i) => parseInt(i.id, 10)),
-      favourite_players: editState.players.map((i) => parseInt(i.id, 10)),
-      favourite_leagues: editState.leagues.map((i) => String(i.id)),
+      favourite_teams: editState.teams.map((i) => ({ id: parseInt(i.id, 10), name: i.name || "" })),
+      favourite_players: editState.players.map((i) => ({ id: parseInt(i.id, 10), name: i.name || "" })),
+      favourite_leagues: editState.leagues.map((i) => ({ id: String(i.id), name: i.name || "" })),
     };
 
     try {

@@ -6,23 +6,21 @@
       <button onclick="navigateTo('favourites')" class="btn-primary">Open favourites</button>
     </div>
 
-    <div id="favouritesSummary" class="favourites-summary">
-      <div class="summary-tabs">
-        <button class="summary-tab active" onclick="showSummaryTab('teams', event)">Teams <span class="badge-count" id="teamsCount">0</span></button>
-        <button class="summary-tab" onclick="showSummaryTab('players', event)">Players <span class="badge-count" id="playersCount">0</span></button>
-        <button class="summary-tab" onclick="showSummaryTab('leagues', event)">Leagues <span class="badge-count" id="leaguesCount">0</span></button>
-      </div>
-      <div id="summaryContent" class="summary-content"></div>
-    </div>
-
-    <div class="section" id="favouritePlayersSection" style="display:none">
+    <div class="section" id="favouritesSummary">
       <div class="section-header">
-        <div>
-          <h3>Favourite Players</h3>
-          <p class="subtitle">Quick stats for the players you follow most.</p>
+        <h3>My Favourites</h3>
+        <div class="league-switcher" id="summarySwitcher">
+          <button id="summaryPrev" type="button" class="btn-secondary switch-btn" onclick="PrimeScoreApp.cycleSummaryItem(-1)" aria-label="Previous">&larr;</button>
+          <span id="summaryPosition" class="league-switcher-label"></span>
+          <button id="summaryNext" type="button" class="btn-secondary switch-btn" onclick="PrimeScoreApp.cycleSummaryItem(1)" aria-label="Next">&rarr;</button>
         </div>
       </div>
-      <div id="favouritePlayersHome" class="cards-grid"></div>
+      <div class="summary-tabs">
+        <button class="summary-tab active" onclick="PrimeScoreApp.showSummaryTab('teams', event)">Teams <span class="badge-count" id="teamsCount">0</span></button>
+        <button class="summary-tab" onclick="PrimeScoreApp.showSummaryTab('players', event)">Players <span class="badge-count" id="playersCount">0</span></button>
+        <button class="summary-tab" onclick="PrimeScoreApp.showSummaryTab('leagues', event)">Leagues <span class="badge-count" id="leaguesCount">0</span></button>
+      </div>
+      <div id="summaryContent" class="summary-content"></div>
     </div>
 
     <div class="section">

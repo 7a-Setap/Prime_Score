@@ -1,0 +1,39 @@
+PRIMESCORE CHANGE LOG
+Date: 10 May 2026 | Total changes: 3
+Feature: Skip Re-resolving Already-saved Favourites on Save
+
+================================================================================
+BACKEND
+================================================================================
+
+routes/favourites_routes.py
+----------------------------
+ORIGINAL CHANGES
+
+- (_resolve_team_entries): Added optional kwarg known_id_to_name (dict mapping
+  str(id) -> name). If an incoming reference is a numeric ID present in the
+  dict, the stored name is reused directly and the teams?id={id} API call is
+  skipped entirely.
+    FROM: always calls resolve_team_reference(reference) for every item
+    TO:   if raw.isdigit() and raw in known: reuse stored name, skip API call
+          else: resolve as before
+
+- (_resolve_player_entries): Same pattern — added optional kwarg
+  known_id_to_name. If the player_name part of a reference is a numeric ID
+  present in the dict, the stored name is reused and the
+  players?id={id}&season= API call is skipped.
+    FROM: always calls resolve_player_reference(player_name, ...) for every item
+    TO:   if player_name.isdigit() and player_name in known: reuse stored name
+          else: resolve as before
+
+- (update_favourites): Now loads the existing favourites row from the DB before
+  resolving, builds known_team_id_to_name and known_player_id_to_name lookup
+  dicts from the stored IDs + names, and passes them to _resolve_team_entries
+  and _resolve_player_entries. Only newly added teams/players (IDs not already
+  in the DB) trigger API calls on save.
+
+REASON
+  The free plan rate limit is per minute. Saving favourites previously called
+  the API for every team and player regardless of whether they were already
+  stored, making saves expensive and prone to 429 errors after heavy search
+  usage. With this fix, re-saving an unchanged list makes zero API calls.
