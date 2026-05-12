@@ -1,5 +1,12 @@
 (function (PrimeScoreApp) {
+  // Reuse the home-page renderer when available — it already supports
+  // expandable yellow/red cards & substitutions for live matches. Falls back
+  // to a basic list if the home handlers haven't loaded yet.
   function renderMatchList(matches, containerId, emptyText) {
+    if (typeof PrimeScoreApp.renderMatchCards === "function") {
+      PrimeScoreApp.renderMatchCards(matches, containerId, emptyText);
+      return;
+    }
     const container = PrimeScoreApp.getById(containerId);
     if (!container) {
       return;

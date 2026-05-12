@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request, session
 
 from config import CURRENT_SEASON
-from services.football_api_client import call_football_api
+from services.football_api_client import call_football_api, is_rate_limited_response
 
 matches_bp = Blueprint("matches", __name__)
 
@@ -62,6 +62,76 @@ def _today_string():
 
 def _date_offset_string(days):
     return (datetime.now(timezone.utc).date() + timedelta(days=days)).isoformat()
+
+
+def _format_match_event(event):
+    """Shape a single fixtures/events entry into a UI-friendly dict.
+
+    The API returns events of type "Goal", "Card", "subst", "Var". We surface
+    the three the spec requires (cards, subs) plus goals for completeness so
+    the timeline reads naturally.
+    """
+    time = event.get("time") or {}
+    team = event.get("team") or {}
+    player = event.get("player") or {}
+    assist = event.get("assist") or {}
+
+    event_type = (event.get("type") or "").lower()  # "goal", "card", "subst", "var"
+    detail = event.get("detail") or ""
+
+    # Normalise a friendly subtype: "yellow_card", "red_card", "substitution",
+    # "goal", "own_goal", "penalty_goal" — the frontend uses this to pick an icon.
+    if event_type == "card":
+        subtype = "red_card" if "red" in detail.lower() else "yellow_card"
+    elif event_type == "subst":
+        subtype = "substitution"
+    elif event_type == "goal":
+        d = detail.lower()
+        if "own" in d:
+            subtype = "own_goal"
+        elif "penalty" in d:
+            subtype = "penalty_goal"
+        else:
+            subtype = "goal"
+    else:
+        subtype = event_type or "event"
+
+    return {
+        "minute": time.get("elapsed"),
+        "extra_minute": time.get("extra"),
+        "team": team.get("name"),
+        "team_id": team.get("id"),
+        "player": player.get("name"),
+        "assist": assist.get("name"),
+        "type": event_type,
+        "subtype": subtype,
+        "detail": detail,
+    }
+
+
+@matches_bp.route("/matches/<int:match_id>/events", methods=["GET"])
+def get_match_events(match_id):
+    """Return goals, cards, and substitutions for a single fixture.
+
+    Used by the home-page live match cards (and the live-matches page) to
+    satisfy FR3: live match details must include yellow/red cards and
+    substitutions. Lazy-loaded — only called when the user opens a card.
+    """
+    auth_error = _require_login()
+    if auth_error:
+        return auth_error
+
+    data = call_football_api("fixture_events", {"fixture": match_id})
+    if is_rate_limited_response(data):
+        return jsonify({"error": "Rate limited by API-Football. Please retry shortly."}), 429
+    if not data or not data.get("response"):
+        return jsonify({"match_id": match_id, "events": []}), 200
+
+    events = [_format_match_event(event) for event in data["response"]]
+    # API returns roughly chronological; ensure stable ordering by minute then extra
+    events.sort(key=lambda e: ((e.get("minute") or 0), (e.get("extra_minute") or 0)))
+
+    return jsonify({"match_id": match_id, "events": events}), 200
 
 
 @matches_bp.route("/matches/live", methods=["GET"])

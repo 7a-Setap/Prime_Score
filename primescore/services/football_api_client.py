@@ -15,6 +15,7 @@ ENDPOINTS = {
     "fixtures": "fixtures",
     "matches": "fixtures",
     "fixture_statistics": "fixtures/statistics",
+    "fixture_events": "fixtures/events",
     "teams": "teams",
     "players": "players",
     "player_profiles": "players/profiles",
@@ -31,6 +32,11 @@ RATE_LIMIT_BACKOFF_SECONDS = 20
 
 def is_rate_limited_response(data):
     return bool(data and data.get("_error") == "rate_limit")
+
+
+def is_in_backoff():
+    """Return True if the rate-limit backoff window is still active."""
+    return RATE_LIMIT_BACKOFF_UNTIL > time.time()
 
 
 def reset_api_client_state():
@@ -91,6 +97,8 @@ def _cache_ttl(endpoint, params):
         return 30
     if endpoint == "fixture_statistics":
         return 300
+    if endpoint == "fixture_events":
+        return 30
     if endpoint in ("teams", "player_profiles", "player_squads"):
         return 300
     if endpoint == "players":

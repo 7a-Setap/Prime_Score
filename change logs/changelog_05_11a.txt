@@ -1,0 +1,91 @@
+PRIMESCORE CHANGE LOG
+Date: 11 May 2026 | Total changes: 6
+Feature: Lazy Loading for Favourite Stat Cards (on-demand fetch per card)
+
+================================================================================
+BACKEND — ROUTES
+================================================================================
+
+primescore/routes/favourites_routes.py
+---------------------------------------
+ORIGINAL CHANGES
+
+- (get_home_screen): Replaced the full stat-loading loops with index-0-only
+  fetches. On each home screen load the backend now makes at most 3 API calls
+  for favourite stats (one per type: team, player, league) instead of up to
+  17+. The returned arrays contain only the first card of each type; subsequent
+  cards are loaded lazily via the new endpoint below.
+
+NEW ADDITIONS
+
+- (get_favourite_stat): New GET /api/favourite-stats endpoint.
+  Query params: type=team|player|league, id=<numeric id or league code>.
+  Verifies the requested item belongs to the current user's favourites, then
+  calls the appropriate _format_favourite_*_stat helper and returns the single
+  card dict as JSON.
+  - Returns 400 if type/id params are missing or invalid.
+  - Returns 404 if the item is not in the user's saved favourites.
+  - Returns 503 if the external API is rate-limited or returns no data.
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+static/js/home_page_handlers.js
+---------------------------------
+NEW ADDITIONS
+
+- (_getIdsForTab): Internal helper that returns the full IDs / codes array for
+  a given tab from PrimeScoreApp.state.favourites. Used as the source of truth
+  for the total item count (replaces stats.length, which is now sparse).
+
+- (_lazyLoadStat): Async internal helper. Fetches /api/favourite-stats for a
+  specific tab + index, stores the result in the state array at that index, and
+  silently repaints the card if the user is still viewing the same slot.
+
+ORIGINAL CHANGES
+
+- (showSummaryTab): Now drives the total card count from _getIdsForTab (the
+  user's full ID list) instead of the stat array length. If the current slot is
+  not yet loaded it shows "Loading…" and calls _lazyLoadStat automatically.
+
+- (cycleSummaryItem): Now async. Uses _getIdsForTab for the total instead of
+  stats.length. If the destination slot is already loaded it renders
+  immediately; otherwise it shows "Loading…" and awaits _lazyLoadStat.
+
+- (loadFavouritesSummary): After applyFavouriteState resolves the user's full
+  ID counts, pre-sizes each stat array (favouriteTeamStats / favouritePlayerStats
+  / favouriteLeagueStats) to a sparse Array of the correct length, preserving
+  any index-0 data that was already fetched by the home screen. This ensures
+  the "N of Total" navigator label is correct from the moment the page renders.
+
+- (_lazyLoadStat error handler): Now updates the card DOM with "Could not load
+  stats right now — navigate away and back to retry." instead of leaving the
+  "Loading…" placeholder stuck on screen permanently.
+
+================================================================================
+BUG FIX — Rate-limit cache poisoning on home screen
+================================================================================
+
+Root cause: when the API-Football rate limit was hit during a lazy-load session,
+the 20-second backoff caused the home screen to rebuild with all fixture arrays
+empty (calls were skipped). That empty payload was then cached for 45 seconds,
+making Live Matches / Upcoming Fixtures / Recent Results all disappear until
+both the backoff AND the stale cache both expired.
+
+services/football_api_client.py
+---------------------------------
+NEW ADDITIONS
+
+- (is_in_backoff): New public helper that returns True when the rate-limit
+  backoff window is still active (RATE_LIMIT_BACKOFF_UNTIL > time.time()).
+
+primescore/routes/favourites_routes.py
+---------------------------------------
+ORIGINAL CHANGES
+
+- (get_home_screen): The home payload is now only written to the server-side
+  cache when is_in_backoff() returns False. If the API client was in backoff
+  during the build (meaning some or all fixture calls were skipped), the
+  response is returned to the client but not cached, allowing the very next
+  request to attempt fresh API calls once the backoff expires.
