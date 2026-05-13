@@ -1,7 +1,6 @@
 """Shared pytest fixtures for the PrimeScore test suite.
 
-These fixtures are intentionally lightweight so the starter suite can run on a
-student machine without needing the full application stack to be online.
+These fixtures are intentionally lightweight so the starter suite can run without needing the full application stack to be online.
 
 Key design choices:
 - The Flask app is created once per test through the real application factory.
