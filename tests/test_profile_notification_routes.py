@@ -1,6 +1,6 @@
 """Tests for profile and notification routes.
 
-These tests are useful coursework evidence because they cover two common forms
+These tests are useful coursework because they cover two common forms
 of stateful user behaviour:
 - editing account data
 - saving preference data
