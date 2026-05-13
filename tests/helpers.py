@@ -7,7 +7,7 @@ Why this file exists:
   database server for every scenario.
 
 The helpers below are deliberately simple and heavily commented so they can
-also serve as evidence/explanation in coursework discussions.
+also serve as explanation in coursework discussions.
 """
 
 from collections import deque
