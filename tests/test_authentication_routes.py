@@ -246,3 +246,82 @@ def test_forgot_password_returns_success_message_without_revealing_account_state
 
     assert response.status_code == 200
     assert "If an account exists with nobody@example.com" in response.get_json()["message"]
+
+
+# ---------------------------------------------------------------------------
+# Logout
+# ---------------------------------------------------------------------------
+
+def test_logout_clears_session(authenticated_client):
+    with authenticated_client.session_transaction() as sess:
+        assert "user_id" in sess
+
+    response = authenticated_client.post("/api/logout")
+
+    assert response.status_code == 200
+    assert response.get_json()["message"] == "Logged out successfully"
+
+    with authenticated_client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+# ---------------------------------------------------------------------------
+# Login rate limiting
+# ---------------------------------------------------------------------------
+
+def test_login_blocks_after_five_failed_attempts(client):
+    """The sixth login attempt from the same IP must be rejected with 429.
+
+    We seed the attempt counter directly rather than making five mocked DB
+    round-trips — the unit under test is the rate-limit gate, not the DB layer.
+    """
+
+    for _ in range(5):
+        authentication_routes.record_login_attempt("127.0.0.1")
+
+    response = client.post(
+        "/api/login",
+        json={"username": "tester", "password": "password123"},
+    )
+
+    assert response.status_code == 429
+    assert response.get_json()["error"] == "Too many login attempts. Try again later."
+
+
+# ---------------------------------------------------------------------------
+# Database unavailable paths
+# ---------------------------------------------------------------------------
+
+class _FailingDBContext:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        raise RuntimeError("Database unavailable")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
+
+def test_register_returns_503_when_database_unavailable(client, monkeypatch):
+    monkeypatch.setattr(authentication_routes, "DBContext", _FailingDBContext)
+
+    response = client.post(
+        "/api/register",
+        json={"username": "newuser", "email": "new@example.com", "password": "password123"},
+    )
+
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "Database unavailable"
+
+
+def test_login_returns_503_when_database_unavailable(client, monkeypatch):
+    monkeypatch.setattr(authentication_routes, "DBContext", _FailingDBContext)
+
+    response = client.post(
+        "/api/login",
+        json={"username": "tester", "password": "password123"},
+    )
+
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "Database unavailable"

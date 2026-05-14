@@ -490,3 +490,158 @@ def test_home_screen_uses_favourite_teams_and_players_when_available(authenticat
     assert payload["favourite_player_stats"][0]["player_name"] == "Mohamed Salah"
     assert payload["favourite_player_stats"][0]["statistics"]["goals"] == 21
 
+
+# ---------------------------------------------------------------------------
+# /api/favourite-stats  (lazy-load stat cards)
+# ---------------------------------------------------------------------------
+
+def test_favourite_stats_requires_login(client):
+    response = client.get("/api/favourite-stats?type=team&id=42")
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Not authenticated"
+
+
+def test_favourite_stats_missing_params_returns_400(authenticated_client, monkeypatch):
+    monkeypatch.setattr(favourites_routes, "_get_saved_favourites_row", lambda user_id: {})
+
+    assert authenticated_client.get("/api/favourite-stats?id=42").status_code == 400
+    assert authenticated_client.get("/api/favourite-stats?type=team").status_code == 400
+
+
+def test_favourite_stats_invalid_type_returns_400(authenticated_client, monkeypatch):
+    monkeypatch.setattr(favourites_routes, "_get_saved_favourites_row", lambda user_id: {})
+
+    response = authenticated_client.get("/api/favourite-stats?type=coach&id=42")
+
+    assert response.status_code == 400
+    assert "Invalid type" in response.get_json()["error"]
+
+
+def test_favourite_stats_team_not_in_saved_list_returns_404(authenticated_client, monkeypatch):
+    monkeypatch.setattr(
+        favourites_routes,
+        "_get_saved_favourites_row",
+        lambda user_id: {"favourite_teams": [49], "favourite_team_names": ["Chelsea"]},
+    )
+
+    response = authenticated_client.get("/api/favourite-stats?type=team&id=42")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"] == "Not in favourites"
+
+
+def test_favourite_stats_player_not_in_saved_list_returns_404(authenticated_client, monkeypatch):
+    monkeypatch.setattr(
+        favourites_routes,
+        "_get_saved_favourites_row",
+        lambda user_id: {"favourite_players": [306], "favourite_player_names": ["Salah"]},
+    )
+
+    response = authenticated_client.get("/api/favourite-stats?type=player&id=999")
+
+    assert response.status_code == 404
+
+
+def test_favourite_stats_league_not_in_saved_list_returns_404(authenticated_client, monkeypatch):
+    monkeypatch.setattr(
+        favourites_routes,
+        "_get_saved_favourites_row",
+        lambda user_id: {"favourite_leagues": ["PL"]},
+    )
+
+    response = authenticated_client.get("/api/favourite-stats?type=league&id=SA")
+
+    assert response.status_code == 404
+
+
+def test_favourite_stats_returns_team_stat_for_saved_team(authenticated_client, monkeypatch):
+    monkeypatch.setattr(
+        favourites_routes,
+        "_get_saved_favourites_row",
+        lambda user_id: {"favourite_teams": [42], "favourite_team_names": ["Arsenal"]},
+    )
+    fake_stat = {
+        "team_id": 42, "team_name": "Arsenal", "position": 1, "points": 68,
+        "played": 30, "won": 20, "drawn": 5, "lost": 5,
+    }
+    monkeypatch.setattr(
+        favourites_routes,
+        "_format_favourite_team_stat",
+        lambda team_id, fallback_name="": fake_stat,
+    )
+
+    response = authenticated_client.get("/api/favourite-stats?type=team&id=42")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["team_name"] == "Arsenal"
+    assert payload["position"] == 1
+
+
+def test_favourite_stats_returns_player_stat_for_saved_player(authenticated_client, monkeypatch):
+    monkeypatch.setattr(
+        favourites_routes,
+        "_get_saved_favourites_row",
+        lambda user_id: {"favourite_players": [306], "favourite_player_names": ["Mohamed Salah"]},
+    )
+    fake_stat = {
+        "player_id": 306, "player_name": "Mohamed Salah",
+        "statistics": {"goals": 21, "assists": 9, "appearances": 30},
+    }
+    monkeypatch.setattr(
+        favourites_routes,
+        "_format_favourite_player_stat",
+        lambda player_id, fallback_name="": fake_stat,
+    )
+
+    response = authenticated_client.get("/api/favourite-stats?type=player&id=306")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["player_name"] == "Mohamed Salah"
+    assert payload["statistics"]["goals"] == 21
+
+
+def test_favourite_stats_returns_league_stat_for_saved_league(authenticated_client, monkeypatch):
+    monkeypatch.setattr(
+        favourites_routes,
+        "_get_saved_favourites_row",
+        lambda user_id: {"favourite_leagues": ["PL"]},
+    )
+    fake_stat = {
+        "league_code": "PL", "league_name": "Premier League",
+        "top_teams": [{"rank": 1, "team": "Liverpool"}],
+    }
+    monkeypatch.setattr(
+        favourites_routes,
+        "_format_favourite_league_stat",
+        lambda league_code: fake_stat,
+    )
+
+    response = authenticated_client.get("/api/favourite-stats?type=league&id=PL")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["league_name"] == "Premier League"
+
+
+def test_favourite_stats_returns_503_when_api_returns_no_data(authenticated_client, monkeypatch):
+    """When the football API has no data for a saved item the route must return
+    503 rather than crashing or returning an empty object."""
+
+    monkeypatch.setattr(
+        favourites_routes,
+        "_get_saved_favourites_row",
+        lambda user_id: {"favourite_teams": [42], "favourite_team_names": ["Arsenal"]},
+    )
+    monkeypatch.setattr(
+        favourites_routes,
+        "_format_favourite_team_stat",
+        lambda team_id, fallback_name="": None,
+    )
+
+    response = authenticated_client.get("/api/favourite-stats?type=team&id=42")
+
+    assert response.status_code == 503
+

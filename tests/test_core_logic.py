@@ -151,6 +151,7 @@ def test_call_football_api_reuses_cached_response(monkeypatch):
 
     class FakeResponse:
         status_code = 200
+        headers = {}
 
         @staticmethod
         def json():
@@ -173,6 +174,8 @@ def test_call_football_api_caches_fallback_response_under_original_request(monke
     request_count = {"value": 0}
 
     class FakeResponse:
+        headers = {}
+
         def __init__(self, payload):
             self.status_code = 200
             self._payload = payload
@@ -206,6 +209,7 @@ def test_call_football_api_backs_off_after_rate_limit(monkeypatch):
 
     class FakeResponse:
         status_code = 429
+        headers = {}
 
         @staticmethod
         def json():
@@ -230,6 +234,7 @@ def test_call_football_api_treats_embedded_rate_limit_errors_as_backoff(monkeypa
 
     class FakeResponse:
         status_code = 200
+        headers = {}
 
         @staticmethod
         def json():
@@ -252,6 +257,8 @@ def test_call_football_api_retries_with_supported_season_after_plan_error(monkey
     requested_params = []
 
     class FakeResponse:
+        headers = {}
+
         def __init__(self, payload):
             self.status_code = 200
             self._payload = payload

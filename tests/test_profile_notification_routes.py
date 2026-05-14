@@ -365,3 +365,299 @@ def test_update_notification_settings_returns_503_when_database_is_unavailable(a
 
     assert response.status_code == 503
     assert response.get_json()["error"] == "Database unavailable"
+
+
+def test_get_notification_settings_returns_existing_row_values(authenticated_client, monkeypatch):
+    """When the user already has a settings row the actual stored values must be returned."""
+
+    db_patch = build_dbcontext_patch(
+        fetchone_results=[
+            {
+                "goals_notifications": True,
+                "match_start_notifications": False,
+                "match_end_notifications": True,
+                "favourite_team_notifications": True,
+                "favourite_player_notifications": False,
+            }
+        ]
+    )
+    monkeypatch.setattr(notification_routes, "DBContext", db_patch.factory)
+
+    response = authenticated_client.get("/api/notifications/settings")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload == {
+        "goals_notifications": True,
+        "match_start_notifications": False,
+        "match_end_notifications": True,
+        "favourite_team_notifications": True,
+        "favourite_player_notifications": False,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Test notification email  (POST /notifications/test)
+# ---------------------------------------------------------------------------
+
+def test_send_test_notification_requires_login(client):
+    response = client.post("/api/notifications/test")
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Not authenticated"
+
+
+def test_send_test_notification_returns_503_when_database_unavailable(authenticated_client, monkeypatch):
+    class FailingDBContext:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            raise RuntimeError("Database unavailable")
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+    monkeypatch.setattr(notification_routes, "DBContext", FailingDBContext)
+
+    response = authenticated_client.post("/api/notifications/test")
+
+    assert response.status_code == 503
+    assert response.get_json()["error"] == "Database unavailable"
+
+
+def test_send_test_notification_returns_400_when_account_has_no_email(authenticated_client, monkeypatch):
+    db_patch = build_dbcontext_patch(fetchone_results=[{"email": None}])
+    monkeypatch.setattr(notification_routes, "DBContext", db_patch.factory)
+
+    response = authenticated_client.post("/api/notifications/test")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "No email address on your account"
+
+
+def test_send_test_notification_returns_400_when_user_row_missing(authenticated_client, monkeypatch):
+    db_patch = build_dbcontext_patch(fetchone_results=[None])
+    monkeypatch.setattr(notification_routes, "DBContext", db_patch.factory)
+
+    response = authenticated_client.post("/api/notifications/test")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "No email address on your account"
+
+
+def test_send_test_notification_skips_email_when_smtp_not_configured(authenticated_client, monkeypatch):
+    """When SMTP_HOST / SMTP_USER are blank the route should return 200 without
+    attempting any network call."""
+
+    db_patch = build_dbcontext_patch(fetchone_results=[{"email": "tester@example.com"}])
+    monkeypatch.setattr(notification_routes, "DBContext", db_patch.factory)
+    # Ensure SMTP is explicitly blank regardless of any environment variable.
+    monkeypatch.setattr(notification_routes, "SMTP_HOST", "")
+    monkeypatch.setattr(notification_routes, "SMTP_USER", "")
+
+    response = authenticated_client.post("/api/notifications/test")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert "SMTP not configured" in payload["message"]
+
+
+def test_send_test_notification_uses_smtp_ssl_for_port_465(authenticated_client, monkeypatch):
+    """Port 465 must use SMTP_SSL (implicit TLS), not plain SMTP + STARTTLS."""
+
+    db_patch = build_dbcontext_patch(fetchone_results=[{"email": "tester@example.com"}])
+    monkeypatch.setattr(notification_routes, "DBContext", db_patch.factory)
+    monkeypatch.setattr(notification_routes, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(notification_routes, "SMTP_USER", "user@example.com")
+    monkeypatch.setattr(notification_routes, "SMTP_PASSWORD", "password")
+    monkeypatch.setattr(notification_routes, "SMTP_PORT", 465)
+
+    ssl_calls = []
+    plain_calls = []
+
+    class FakeSMTPSSL:
+        def __init__(self, *args, **kwargs):
+            ssl_calls.append(args)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def login(self, *args):
+            pass
+
+        def sendmail(self, *args):
+            pass
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            plain_calls.append(args)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def ehlo(self):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, *args):
+            pass
+
+        def sendmail(self, *args):
+            pass
+
+    monkeypatch.setattr(notification_routes.smtplib, "SMTP_SSL", FakeSMTPSSL)
+    monkeypatch.setattr(notification_routes.smtplib, "SMTP", FakeSMTP)
+
+    response = authenticated_client.post("/api/notifications/test")
+
+    assert response.status_code == 200
+    assert ssl_calls, "Expected SMTP_SSL to be used for port 465"
+    assert not plain_calls, "Plain SMTP must NOT be used for port 465"
+
+
+def test_send_test_notification_uses_starttls_for_port_587(authenticated_client, monkeypatch):
+    """Non-465 ports must use plain SMTP + STARTTLS, not SMTP_SSL."""
+
+    db_patch = build_dbcontext_patch(fetchone_results=[{"email": "tester@example.com"}])
+    monkeypatch.setattr(notification_routes, "DBContext", db_patch.factory)
+    monkeypatch.setattr(notification_routes, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(notification_routes, "SMTP_USER", "user@example.com")
+    monkeypatch.setattr(notification_routes, "SMTP_PASSWORD", "password")
+    monkeypatch.setattr(notification_routes, "SMTP_PORT", 587)
+
+    ssl_calls = []
+    starttls_called = []
+
+    class FakeSMTPSSL:
+        def __init__(self, *args, **kwargs):
+            ssl_calls.append(args)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def login(self, *args):
+            pass
+
+        def sendmail(self, *args):
+            pass
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def ehlo(self):
+            pass
+
+        def starttls(self):
+            starttls_called.append(True)
+
+        def login(self, *args):
+            pass
+
+        def sendmail(self, *args):
+            pass
+
+    monkeypatch.setattr(notification_routes.smtplib, "SMTP_SSL", FakeSMTPSSL)
+    monkeypatch.setattr(notification_routes.smtplib, "SMTP", FakeSMTP)
+
+    response = authenticated_client.post("/api/notifications/test")
+
+    assert response.status_code == 200
+    assert starttls_called, "Expected STARTTLS to be called for port 587"
+    assert not ssl_calls, "SMTP_SSL must NOT be used for port 587"
+
+
+def test_send_test_notification_returns_500_on_smtp_failure(authenticated_client, monkeypatch):
+    """An SMTP exception must be caught and returned as a 500, not an unhandled crash."""
+
+    db_patch = build_dbcontext_patch(fetchone_results=[{"email": "tester@example.com"}])
+    monkeypatch.setattr(notification_routes, "DBContext", db_patch.factory)
+    monkeypatch.setattr(notification_routes, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(notification_routes, "SMTP_USER", "user@example.com")
+    monkeypatch.setattr(notification_routes, "SMTP_PASSWORD", "password")
+    monkeypatch.setattr(notification_routes, "SMTP_PORT", 587)
+
+    def broken_smtp(*args, **kwargs):
+        raise ConnectionRefusedError("Connection refused")
+
+    monkeypatch.setattr(notification_routes.smtplib, "SMTP", broken_smtp)
+
+    response = authenticated_client.post("/api/notifications/test")
+
+    assert response.status_code == 500
+    assert "SMTP" in response.get_json()["error"]
+
+
+# ---------------------------------------------------------------------------
+# Delete account
+# ---------------------------------------------------------------------------
+
+def test_delete_account_requires_login(client):
+    response = client.post("/api/delete-account", json={"password": "secret123", "confirmation": "DELETE"})
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Not authenticated"
+
+
+def test_delete_account_rejects_non_delete_confirmation(authenticated_client):
+    response = authenticated_client.post(
+        "/api/delete-account",
+        json={"password": "secret123", "confirmation": "delete"},
+    )
+
+    assert response.status_code == 400
+    assert "DELETE" in response.get_json()["error"]
+
+
+def test_delete_account_rejects_wrong_password(authenticated_client, monkeypatch):
+    hashed = generate_password_hash("correct-password")
+    db_patch = build_dbcontext_patch(fetchone_results=[{"password_hash": hashed}])
+    monkeypatch.setattr(profile_routes, "DBContext", db_patch.factory)
+
+    response = authenticated_client.post(
+        "/api/delete-account",
+        json={"password": "wrong-password", "confirmation": "DELETE"},
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Password is incorrect"
+
+
+def test_delete_account_clears_session_and_removes_user_on_success(authenticated_client, monkeypatch):
+    hashed = generate_password_hash("correct-password")
+    db_patch = build_dbcontext_patch(fetchone_results=[{"password_hash": hashed}])
+    monkeypatch.setattr(profile_routes, "DBContext", db_patch.factory)
+
+    response = authenticated_client.post(
+        "/api/delete-account",
+        json={"password": "correct-password", "confirmation": "DELETE"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["message"] == "Account deleted successfully"
+    assert db_patch.transaction_state.committed is True
+
+    executed = [s["query"] for s in db_patch.cursor.executed_statements]
+    assert any("DELETE FROM users" in q for q in executed)
+
+    # Session must be cleared after the DB commit succeeds.
+    with authenticated_client.session_transaction() as sess:
+        assert "user_id" not in sess
