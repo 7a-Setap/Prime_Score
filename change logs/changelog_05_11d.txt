@@ -1,0 +1,50 @@
+PRIMESCORE CHANGE LOG
+Date: 11 May 2026 | Total changes: 2
+Feature: Daily API-Football quota detection in active client
+
+Background:
+The project has two API-Football clients — the older services/api.py and
+the active services/football_api_client.py used by every route. The old
+client read x-ratelimit-requests-remaining / -limit headers and emitted
+"quota running low" warnings; the new client never carried that logic
+over. As a result, when the daily 100-request quota was exhausted the
+server logs only showed generic "429" lines, and the per-minute 20-second
+backoff kept retrying every 20 seconds for the rest of the day even
+though no retry could succeed until midnight UTC.
+
+================================================================================
+BACKEND — SERVICES
+================================================================================
+
+services/football_api_client.py
+---------------------------------
+NEW ADDITIONS
+
+- (_log_quota_headers): Reads x-ratelimit-requests-remaining and
+  x-ratelimit-requests-limit from every response (these are present on
+  both 200 and 429 replies) and logs at one of three levels:
+    * remaining > 10  → INFO     "API quota: X / Y requests remaining today."
+    * remaining ≤ 10  → WARNING  "API-Football quota running low: …"
+    * remaining = 0   → WARNING  "API-Football DAILY QUOTA EXHAUSTED — …"
+                                  and immediately extends the rate-limit
+                                  backoff to 1 hour so we stop hammering
+                                  the dead endpoint.
+
+ORIGINAL CHANGES
+
+- (_activate_rate_limit_backoff): Now takes an optional `seconds` argument
+  so the daily-quota path can install a 3600-second window instead of the
+  default 20-second per-minute window. Existing callers (per-minute 429s,
+  rateLimit error payloads) keep the original 20-second behaviour by
+  passing nothing.
+
+- (_request_api_json): Calls _log_quota_headers on every response. On a
+  429 it now distinguishes:
+    * remaining_raw == "0"  → log "daily quota exhausted" (long backoff
+                              already installed by _log_quota_headers,
+                              not re-applied here to avoid clobbering it
+                              with the shorter 20-second value)
+    * remaining_raw > 0     → log "per-minute rate limit hit" and apply
+                              the standard 20-second backoff
+  In both cases the function still returns _rate_limit_payload() so
+  upstream callers handle 429s the same way they did before.

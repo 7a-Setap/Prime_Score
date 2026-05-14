@@ -1,0 +1,178 @@
+PRIMESCORE CHANGE LOG
+Date: 14 May 2026 | Total changes: 11
+Features:
+  1. Login form: Enter key submits the form
+  2. Match-card "View details" panel with three lazy-loaded tabs:
+     - Lineups (CSS pitch with player tokens positioned by API grid)
+     - Events (yellow/red cards, substitutions, goals)
+     - Head-to-Head (W-D-L summary + last 10 meetings)
+  3. Account deletion moved from Profile page to Settings page
+
+================================================================================
+LOGIN — ENTER KEY SUBMITS THE FORM
+================================================================================
+
+Previously the login/register/forgot-password buttons were type="button", so
+pressing Enter in any input did nothing. The form already had a submit
+listener wired — it just had no event to listen to.
+
+primescore/templates/pages/login_page.html
+-------------------------------------------
+ORIGINAL CHANGES
+- (loginButton, registerButton, forgotPasswordButton): type="button" → type="submit"
+  so the browser fires the form's submit event on Enter as well as on click.
+
+primescore/static/js/app_bootstrap.js
+--------------------------------------
+ORIGINAL CHANGES
+- (bindAuthForms): Removed the redundant per-button click listeners. The
+  form's submit listener now covers both keyboard Enter and mouse clicks —
+  keeping the click handlers as well would fire handleLogin twice per click.
+- Added a submit listener for forgotPasswordForm (it was missing, so Enter
+  on the forgot-password screen didn't work even after the type change).
+
+================================================================================
+ACCOUNT DELETION — MOVED TO SETTINGS PAGE
+================================================================================
+
+The account-deletion "Danger zone" was originally added to the Profile page.
+The Settings page is the more consistent home for security/account actions
+(Change Password already lives there) so the danger zone has been relocated.
+
+primescore/templates/pages/profile_page.html
+---------------------------------------------
+ORIGINAL CHANGES
+- Removed the entire Danger Zone block. Profile is back to being purely
+  about how the user presents themselves (username, email, display name, bio).
+
+primescore/templates/pages/settings_page.html
+----------------------------------------------
+ORIGINAL CHANGES
+- Pasted the Danger Zone block directly below the existing "Change Password"
+  section. No element IDs changed, so all the existing JS handlers (in
+  profile_handlers.js) and CSS rules continue to work without modification.
+
+================================================================================
+MATCH DETAILS — TABBED PANEL (Lineups / Events / H2H)
+================================================================================
+
+Previously a "View cards & subs" button on live match cards opened a single-
+purpose panel showing the event timeline. That button is now "View details"
+on EVERY match card and opens a tabbed panel that lazy-loads each tab on
+first click. Each tab caches its result on the panel via data-loaded="true"
+so toggling away and back doesn't re-fetch.
+
+services/football_api_client.py
+--------------------------------
+NEW ADDITIONS
+- (ENDPOINTS): "fixture_lineups" → "fixtures/lineups"
+- (ENDPOINTS): "fixture_h2h"     → "fixtures/headtohead"
+- (_cache_ttl):
+    * fixture_lineups → 300 seconds   (lineups change rarely once published)
+    * fixture_h2h     → 1800 seconds  (historical, only changes when teams meet again)
+
+primescore/routes/match_routes.py
+----------------------------------
+NEW ADDITIONS
+- (_format_lineup_player, _format_team_lineup): Shape /fixtures/lineups
+  entries into UI-friendly dicts (team, coach, formation, startXI with grid
+  coordinates, substitutes).
+- (get_match_lineups): New GET /api/matches/<id>/lineups endpoint. Returns
+  {match_id, home, away} where home/away are formatted lineups (or null if
+  the API has nothing yet — typical for fixtures more than ~30 min from
+  kickoff).
+- (get_match_h2h): New GET /api/matches/<id>/h2h?home_id=X&away_id=Y endpoint.
+  Calls /fixtures/headtohead with the two team IDs, sorts the response by
+  date descending, trims to the 10 most recent meetings, and returns:
+    {match_id, home_team_id, away_team_id,
+     summary: {home_wins, away_wins, draws, total},
+     fixtures: [list of past meetings]}
+  W/D/L counts are attributed from the CURRENT fixture's perspective, so
+  even if team1 was the away team in a past meeting, their win still counts
+  as a "home_wins" entry in the summary.
+
+ORIGINAL CHANGES
+- (_map_match): Added "home_team_id" and "away_team_id" to the mapped
+  payload so the frontend has IDs available for the H2H endpoint without an
+  extra lookup round-trip.
+
+primescore/routes/favourites_routes.py
+---------------------------------------
+ORIGINAL CHANGES
+- (_map_fixture): Mirror change — added "home_team_id" and "away_team_id"
+  to the mapped payload returned by the home-screen route.
+
+primescore/static/js/home_page_handlers.js
+-------------------------------------------
+NEW ADDITIONS
+- (_lastNameOnly): Strips a leading initial from a player name so
+  "K. De Bruyne" fits cleanly on a pitch token as "De Bruyne".
+- (_renderMiniPitch): Computes the bounding box of a team's formation
+  from the grid coordinates, then absolutely-positions each player token
+  on a CSS pitch. Works for any formation (3-5-2, 4-3-3, 4-2-3-1, etc).
+  GK is at the bottom of the pitch; attackers at the top.
+- (_initialiseDetailsPanel): Builds the tab strip + lazy-load placeholders
+  inside the panel on first open. Wires up tab-switching click handlers.
+  Adds the H2H tab only when the panel has both team IDs cached on its
+  data attributes (graceful fallback when IDs aren't available).
+- (_ensureLineupsLoaded, _ensureEventsLoaded, _ensureH2HLoaded): Tab-
+  specific lazy loaders. Each marks the tab as loaded so subsequent
+  toggles don't re-fetch.
+- (_renderH2HSummary, _renderH2HFixtureRow): Render the three-column
+  W-D-L summary and the per-meeting list rows respectively.
+- (_toggleMatchDetails): Replaces the old _toggleMatchEvents. Opens/closes
+  the panel; initialises tabs on first open.
+
+ORIGINAL CHANGES
+- (renderMatchCards): "View cards & subs" → "View details" on EVERY card
+  (was previously gated to live matches only). Passes match_id + team IDs
+  + team names through to the panel via data attributes (data-home-id,
+  data-away-id, data-home-name, data-away-name) so the H2H tab can call
+  the backend without an extra lookup.
+
+primescore/static/js/match_page_handlers.js
+--------------------------------------------
+ORIGINAL CHANGES
+- (renderMatchList): Delegates to PrimeScoreApp.renderMatchCards when
+  available so the dedicated Live Matches page inherits the tabbed details
+  panel automatically. Falls back to the original simple list if the home
+  handler hasn't loaded yet.
+
+primescore/static/style.css
+----------------------------
+NEW ADDITIONS
+- .match-events-toggle, .match-details-toggle  – shared toggle button styling
+- .match-events-panel, .match-details-panel    – panel container styling
+- .match-details-tabs / .match-details-tab     – tab strip with underline
+                                                  on the active tab
+- .formation-stack / .formation-block          – two-pitch layout
+- .formation-pitch                              – green pitch with center
+                                                  circle and halfway line
+                                                  drawn purely in CSS
+- .formation-player / .formation-number /
+  .formation-name                               – player token (red circle
+                                                  with white shirt number,
+                                                  surname pill below)
+- .formation-subs                               – collapsible substitutes list
+- .h2h-summary / .h2h-summary-team /
+  .h2h-summary-count / .h2h-summary-label /
+  .h2h-summary-draws                            – three-column W-D-L grid
+- .h2h-list / .h2h-row / .h2h-date /
+  .h2h-comp / .h2h-teams / .h2h-score           – per-meeting list rows
+
+================================================================================
+H2H — FREE-PLAN COMPATIBILITY
+================================================================================
+
+Initial implementation passed last=10 to /fixtures/headtohead. API-Football
+rejected this with:
+
+    {"errors": {"plan": "Free plans do not have access to the Last parameter."}}
+
+primescore/routes/match_routes.py
+----------------------------------
+ORIGINAL CHANGES
+- (get_match_h2h): Dropped the "last" param from the API call. The route
+  now sorts the full response by fixture.date descending and trims to the
+  10 most recent meetings server-side. Behaviour from the frontend's
+  perspective is identical; the W-D-L summary is unchanged.

@@ -42,11 +42,17 @@ def _map_fixture(match):
     goals = match.get("goals", {})
     league = match.get("league", {})
     status = fixture.get("status") or {}
+    home_team = teams.get("home") or {}
+    away_team = teams.get("away") or {}
 
     return {
         "match_id": fixture.get("id"),
-        "home_team": (teams.get("home") or {}).get("name"),
-        "away_team": (teams.get("away") or {}).get("name"),
+        "home_team": home_team.get("name"),
+        # Team IDs are surfaced so the frontend can request /h2h without
+        # an extra lookup round-trip per click.
+        "home_team_id": home_team.get("id"),
+        "away_team": away_team.get("name"),
+        "away_team_id": away_team.get("id"),
         "home_score": goals.get("home"),
         "away_score": goals.get("away"),
         "status": status.get("long"),

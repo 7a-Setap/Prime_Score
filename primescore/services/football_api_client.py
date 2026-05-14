@@ -16,6 +16,8 @@ ENDPOINTS = {
     "matches": "fixtures",
     "fixture_statistics": "fixtures/statistics",
     "fixture_events": "fixtures/events",
+    "fixture_lineups": "fixtures/lineups",
+    "fixture_h2h": "fixtures/headtohead",
     "teams": "teams",
     "players": "players",
     "player_profiles": "players/profiles",
@@ -99,6 +101,15 @@ def _cache_ttl(endpoint, params):
         return 300
     if endpoint == "fixture_events":
         return 30
+    if endpoint == "fixture_lineups":
+        # Lineups change rarely once published — 5 minutes is enough churn
+        # for substitution-after-the-fact corrections without hammering the
+        # API when the user toggles a card open and closed.
+        return 300
+    if endpoint == "fixture_h2h":
+        # Historical head-to-head records — only change when the two teams
+        # play again. 30 minutes is generous and saves repeat clicks.
+        return 1800
     if endpoint in ("teams", "player_profiles", "player_squads"):
         return 300
     if endpoint == "players":
@@ -135,9 +146,45 @@ def _set_cached_response(endpoint, params, data):
     }
 
 
-def _activate_rate_limit_backoff():
+def _activate_rate_limit_backoff(seconds=None):
     global RATE_LIMIT_BACKOFF_UNTIL
-    RATE_LIMIT_BACKOFF_UNTIL = time.time() + RATE_LIMIT_BACKOFF_SECONDS
+    RATE_LIMIT_BACKOFF_UNTIL = time.time() + (seconds if seconds is not None else RATE_LIMIT_BACKOFF_SECONDS)
+
+
+def _log_quota_headers(response):
+    """Surface API-Football's daily quota headers in the server log.
+
+    The response carries x-ratelimit-requests-remaining and -limit on every
+    successful call. When the remaining count hits 0 the next call will 429
+    and the per-minute backoff won't help — we extend it to an hour so we
+    stop hammering the dead endpoint until the daily window resets.
+    """
+    remaining_raw = response.headers.get("x-ratelimit-requests-remaining")
+    limit_raw = response.headers.get("x-ratelimit-requests-limit")
+    if remaining_raw is None or limit_raw is None:
+        return
+
+    try:
+        remaining = int(remaining_raw)
+        daily_limit = int(limit_raw)
+    except (TypeError, ValueError):
+        return
+
+    if remaining <= 0:
+        logger.warning(
+            "API-Football DAILY QUOTA EXHAUSTED — %s/%s requests used. "
+            "All calls will 429 until the daily window resets (midnight UTC). "
+            "Extending backoff to 1 hour.",
+            daily_limit, daily_limit,
+        )
+        _activate_rate_limit_backoff(seconds=3600)
+    elif remaining <= 10:
+        logger.warning(
+            "API-Football quota running low: %s of %s requests remaining today.",
+            remaining, daily_limit,
+        )
+    else:
+        logger.info("API quota: %s / %s requests remaining today.", remaining, daily_limit)
 
 
 def _rate_limit_payload():
@@ -166,9 +213,18 @@ def _request_api_json(api_path, cleaned_params):
         logger.error("API request failed: %s - %s", type(error).__name__, error)
         return None
 
+    # Log quota state on every response (200 or 429 — both carry the headers).
+    # This will trigger the long backoff automatically when remaining hits 0.
+    _log_quota_headers(response)
+
     if response.status_code == 429:
-        logger.error("API request failed with status 429")
-        _activate_rate_limit_backoff()
+        # Distinguish daily-quota 429s from per-minute 429s for clearer logs.
+        remaining_raw = response.headers.get("x-ratelimit-requests-remaining")
+        if remaining_raw == "0":
+            logger.error("API request 429 — daily quota exhausted.")
+        else:
+            logger.error("API request 429 — per-minute rate limit hit.")
+            _activate_rate_limit_backoff()
         return _rate_limit_payload()
 
     if response.status_code != 200:

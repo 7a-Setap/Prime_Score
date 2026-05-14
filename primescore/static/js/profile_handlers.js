@@ -82,7 +82,75 @@
     }
   }
 
+  // ── Account deletion ─────────────────────────────────────────────────────
+
+  function toggleDeleteAccountPanel(open) {
+    const panel = PrimeScoreApp.getById("deleteAccountPanel");
+    const toggleBtn = PrimeScoreApp.getById("deleteAccountToggle");
+    if (!panel) return;
+
+    if (open) {
+      panel.style.display = "block";
+      if (toggleBtn) toggleBtn.style.display = "none";
+    } else {
+      panel.style.display = "none";
+      if (toggleBtn) toggleBtn.style.display = "";
+      // Wipe the inputs so the password isn't sitting around in the DOM and
+      // so the user starts fresh next time they open the panel.
+      const passwordInput = PrimeScoreApp.getById("deleteAccountPassword");
+      const confirmInput = PrimeScoreApp.getById("deleteAccountConfirm");
+      if (passwordInput) passwordInput.value = "";
+      if (confirmInput) confirmInput.value = "";
+      PrimeScoreApp.clearMessage?.("deleteAccountMsg");
+    }
+  }
+
+  async function deleteAccount() {
+    PrimeScoreApp.clearMessage?.("deleteAccountMsg");
+
+    const password = PrimeScoreApp.getById("deleteAccountPassword")?.value || "";
+    const confirmation = (PrimeScoreApp.getById("deleteAccountConfirm")?.value || "").trim();
+
+    if (!password) {
+      PrimeScoreApp.showMessage("deleteAccountMsg", "Please enter your password.");
+      return;
+    }
+    if (confirmation !== "DELETE") {
+      PrimeScoreApp.showMessage("deleteAccountMsg", 'Type "DELETE" exactly to confirm.');
+      return;
+    }
+
+    // Final OS-level confirm prompt — three gates total (password, typed
+    // word, browser confirm) is a lot, but this is an irreversible action.
+    if (!window.confirm(
+      "This will permanently delete your account and all your favourites. Continue?"
+    )) {
+      return;
+    }
+
+    try {
+      await PrimeScoreApp.apiFetch("/api/delete-account", {
+        method: "POST",
+        body: JSON.stringify({ password, confirmation }),
+      });
+
+      // Mirror the logout flow so the UI lands in a clean unauthenticated state.
+      PrimeScoreApp.state.user = { username: "", displayName: "", email: "" };
+      document.body.classList.add("unauth");
+      PrimeScoreApp.hideElement?.(PrimeScoreApp.getById("profileSection"));
+      PrimeScoreApp.closeSidebar?.();
+      PrimeScoreApp.navigateTo?.("login");
+    } catch (error) {
+      PrimeScoreApp.showMessage(
+        "deleteAccountMsg",
+        error.message || "Could not delete account.",
+      );
+    }
+  }
+
   PrimeScoreApp.loadProfile = loadProfile;
   PrimeScoreApp.saveProfile = saveProfile;
   PrimeScoreApp.changePassword = changePassword;
+  PrimeScoreApp.toggleDeleteAccountPanel = toggleDeleteAccountPanel;
+  PrimeScoreApp.deleteAccount = deleteAccount;
 })(window.PrimeScoreApp);
