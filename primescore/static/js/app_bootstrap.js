@@ -1,12 +1,13 @@
 (function (PrimeScoreApp, window) {
   function bindAuthForms() {
+    // The buttons are now type="submit", so pressing Enter in any input
+    // inside the form (or clicking the button) fires the form's submit
+    // event. The separate click handlers used to be needed because the
+    // buttons were type="button" — keeping them now would cause the
+    // handler to run twice per click.
     PrimeScoreApp.getById("loginForm")?.addEventListener("submit", PrimeScoreApp.handleLogin);
-    PrimeScoreApp.getById("loginButton")?.addEventListener("click", PrimeScoreApp.handleLogin);
-
     PrimeScoreApp.getById("registerForm")?.addEventListener("submit", PrimeScoreApp.handleRegister);
-    PrimeScoreApp.getById("registerButton")?.addEventListener("click", PrimeScoreApp.handleRegister);
-
-    PrimeScoreApp.getById("forgotPasswordButton")?.addEventListener("click", PrimeScoreApp.handleForgotPassword);
+    PrimeScoreApp.getById("forgotPasswordForm")?.addEventListener("submit", PrimeScoreApp.handleForgotPassword);
   }
 
   function bindCompareControls() {

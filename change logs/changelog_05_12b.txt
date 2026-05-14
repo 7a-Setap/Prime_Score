@@ -1,0 +1,106 @@
+PRIMESCORE CHANGE LOG
+Date: 12 May 2026 | Total changes: 4
+Feature: Account deletion (user-initiated permanent removal)
+
+Users can now permanently delete their PrimeScore account from the Profile
+page. The action requires three independent confirmations to make
+accidental deletion effectively impossible:
+  1. Click the "Delete my account" button to reveal the panel.
+  2. Re-enter the current password.
+  3. Type the literal word "DELETE" into a separate field.
+  4. Confirm a final browser-level confirm() dialog.
+
+Only steps 2-3 are checked server-side; step 4 is purely client-side belt-
+and-braces.
+
+Schema note:
+No schema change required. user_favourites.user_id and
+notification_settings.user_id already carry ON DELETE CASCADE, so a single
+DELETE FROM users row removes all related data atomically. No other table
+references users.
+
+================================================================================
+BACKEND — ROUTES
+================================================================================
+
+primescore/routes/profile_routes.py
+------------------------------------
+NEW ADDITIONS
+
+- (delete_account): New POST /api/delete-account endpoint.
+  Body: {"password": "<current>", "confirmation": "DELETE"}
+  Returns:
+    * 200  account deleted (session cleared)
+    * 400  missing password or confirmation mismatch
+    * 401  not authenticated, or password incorrect
+    * 503  database unavailable
+    * 500  unexpected error (logged with stack trace)
+
+  Implementation notes:
+    * Verifies password via werkzeug check_password_hash before deleting.
+    * Stale-session edge case: if the session points at a user_id that no
+      longer exists in the users table, the route returns 200 and clears
+      the session (rather than 404) so a half-deleted browser session
+      can heal itself.
+    * Session is cleared AFTER the DB DELETE commits successfully — that
+      way a DB failure doesn't accidentally sign the user out of an
+      account that still exists.
+    * Logs "Account deleted: user_id=N" at INFO level for audit.
+
+================================================================================
+FRONTEND — TEMPLATES
+================================================================================
+
+primescore/templates/pages/profile_page.html
+---------------------------------------------
+ORIGINAL CHANGES
+
+- Added a "Danger zone" .section below the profile form containing:
+    * A "Delete my account" toggle button (hidden once the panel opens).
+    * A collapsible panel with:
+        - Password input (with the existing Show toggle)
+        - "Type DELETE to confirm" input
+        - Cancel + Permanently delete buttons
+        - Inline error message element (#deleteAccountMsg)
+
+================================================================================
+FRONTEND — JAVASCRIPT
+================================================================================
+
+primescore/static/js/profile_handlers.js
+-----------------------------------------
+NEW ADDITIONS
+
+- (toggleDeleteAccountPanel): Shows/hides the danger-zone confirmation
+  panel. On close it wipes the password and confirmation inputs so the
+  password doesn't sit around in the DOM and the user starts fresh on a
+  subsequent open.
+
+- (deleteAccount): Client-side validation (password present, confirmation
+  text exactly equals "DELETE"), a window.confirm() final prompt, then
+  POST /api/delete-account. On success it mirrors the existing logout
+  flow: clears state.user, adds the body.unauth class, hides the profile
+  nav element, closes the sidebar, and navigates to the login page.
+  Errors are surfaced inline in #deleteAccountMsg.
+
+================================================================================
+FRONTEND — CSS
+================================================================================
+
+primescore/static/style.css
+----------------------------
+NEW ADDITIONS
+
+- .btn-danger / .btn-danger:hover   – red destructive-action button.
+- .danger-zone                       – tinted section background and
+                                       red-leaning border so the area
+                                       is visually distinct from the
+                                       regular profile form.
+- .danger-zone h3                    – red heading.
+- .delete-account-panel              – inner confirmation panel layout.
+- .delete-account-panel .warning-text – red text for the irreversible
+                                        action notice.
+- .delete-account-panel code         – inline pill for the literal
+                                        word "DELETE" in the instructions.
+- .delete-account-actions            – flex row for Cancel + Confirm
+                                       buttons; wraps on narrow screens.

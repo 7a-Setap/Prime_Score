@@ -334,18 +334,225 @@ label,
   vertical-align: middle;
 }
 
-.match-events-toggle {
+.match-events-toggle,
+.match-details-toggle {
   margin-top: 0.5rem;
   font-size: 0.85rem;
   padding: 0.25rem 0.6rem;
 }
 
-.match-events-panel {
+.match-events-panel,
+.match-details-panel {
   margin-top: 0.5rem;
   padding: 0.5rem 0.75rem;
   background: rgba(0, 0, 0, 0.03);
   border-radius: var(--radius);
   border: 1px solid var(--border);
+}
+
+/* Tab strip inside the details panel (Lineups | Events). */
+.match-details-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.match-details-tab {
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+  min-height: 0;
+}
+
+.match-details-tab.active {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Lineup / formation view — one pitch per team, stacked. */
+.formation-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.formation-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.formation-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  margin-bottom: 0.3rem;
+}
+
+.formation-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* The pitch itself: green background with halfway-line and centre circle
+   drawn purely in CSS so we don't need image assets. */
+.formation-pitch {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background-color: #3e8e41;
+  background-image:
+    radial-gradient(circle at 50% 50%, transparent 36px, rgba(255,255,255,0.5) 36px, rgba(255,255,255,0.5) 38px, transparent 38px),
+    linear-gradient(to bottom, transparent calc(50% - 1px), rgba(255,255,255,0.5) calc(50% - 1px), rgba(255,255,255,0.5) calc(50% + 1px), transparent calc(50% + 1px));
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.formation-player {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  pointer-events: none;
+  font-size: 0.7rem;
+}
+
+.formation-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: #c0392b;
+  color: #ffffff;
+  border-radius: 50%;
+  font-weight: 700;
+  border: 2px solid #ffffff;
+  font-size: 0.75rem;
+}
+
+.formation-name {
+  margin-top: 2px;
+  padding: 1px 5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  border-radius: 3px;
+  white-space: nowrap;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.formation-subs {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.formation-subs summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.formation-subs ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.formation-subs li {
+  margin-bottom: 0.15rem;
+}
+
+/* Head-to-head tab — W-D-L summary plus a list of past meetings. */
+.h2h-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.h2h-summary-team {
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.h2h-summary-count {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--primary);
+  line-height: 1;
+}
+
+.h2h-summary-draws .h2h-summary-count {
+  color: var(--muted);
+}
+
+.h2h-summary-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+.h2h-total {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.h2h-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.h2h-row {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.85rem;
+}
+
+.h2h-row:last-child {
+  border-bottom: 0;
+}
+
+.h2h-date {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.h2h-comp {
+  display: none; /* hidden on narrow layouts; kept in DOM for accessibility */
+}
+
+.h2h-teams {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.h2h-score {
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.4rem;
+  background: var(--surface-muted);
+  border-radius: 4px;
+  font-size: 0.85rem;
 }
 
 .event-list {
@@ -596,6 +803,7 @@ label,
 .summary-tab,
 .btn-primary,
 .btn-secondary,
+.btn-danger,
 .toggle-password {
   display: inline-flex;
   align-items: center;
@@ -624,6 +832,59 @@ label,
 
 .btn-secondary {
   background: var(--surface);
+}
+
+/* Destructive action button (account deletion etc.) */
+.btn-danger {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #ffffff;
+}
+
+.btn-danger:hover {
+  background: #a3322a;
+  border-color: #a3322a;
+}
+
+/* "Danger zone" section on the profile page — visually separates the
+   account-deletion controls from the normal profile-edit form. */
+.danger-zone {
+  margin-top: 1.5rem;
+  border: 1px solid #e8b9b3;
+  background: #fdf3f1;
+}
+
+.danger-zone h3 {
+  color: #c0392b;
+  margin-top: 0;
+}
+
+.delete-account-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid #e8b9b3;
+  border-radius: var(--radius);
+}
+
+.delete-account-panel .warning-text {
+  color: #c0392b;
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.delete-account-panel code {
+  background: rgba(192, 57, 43, 0.08);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+.delete-account-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
 }
 
 .badge-count {

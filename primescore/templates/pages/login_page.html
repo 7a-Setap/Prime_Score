@@ -24,7 +24,7 @@
         <div class="form-link">
           <a href="#" onclick="showForgotPassword(); return false;">Forgot password?</a>
         </div>
-        <button type="button" class="btn-primary" id="loginButton">Login</button>
+        <button type="submit" class="btn-primary" id="loginButton">Login</button>
         <p class="error-message" id="loginError"></p>
       </form>
 
@@ -51,7 +51,7 @@
             <button type="button" class="toggle-password" onclick="togglePasswordVisibility('registerPasswordConfirm')">Show</button>
           </div>
         </div>
-        <button type="button" class="btn-primary" id="registerButton">Create Account</button>
+        <button type="submit" class="btn-primary" id="registerButton">Create Account</button>
         <p class="error-message" id="registerError"></p>
       </form>
 
@@ -60,7 +60,7 @@
           <label for="forgotEmail">Email</label>
           <input type="email" id="forgotEmail" required autocomplete="email" />
         </div>
-        <button type="button" class="btn-primary" id="forgotPasswordButton">Send Reset Link</button>
+        <button type="submit" class="btn-primary" id="forgotPasswordButton">Send Reset Link</button>
         <p class="error-message" id="forgotError"></p>
         <div class="form-link">
           <a href="#" onclick="switchTab('login'); return false;">Back to login</a>

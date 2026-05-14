@@ -109,6 +109,71 @@ def update_profile():
     ), 200
 
 
+@profile_bp.route("/delete-account", methods=["POST"])
+def delete_account():
+    """Permanently delete the signed-in user's account.
+
+    Security:
+      - Requires an active session (401 otherwise).
+      - Requires the user to re-enter their current password.
+      - Requires the literal confirmation string "DELETE" — prevents the
+        endpoint from being hit accidentally by something that has the
+        password but lacks intent (e.g. a forgotten device).
+
+    Data cleanup:
+      The users row is deleted directly. ON DELETE CASCADE on
+      user_favourites.user_id and notification_settings.user_id handles
+      the companion rows automatically — no other table references users.
+
+    Side effects:
+      Session is cleared before the response is returned so the next
+      request from this browser is unauthenticated immediately.
+    """
+    if "user_id" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    data = request.get_json(silent=True) or {}
+    password = data.get("password", "")
+    confirmation = (data.get("confirmation") or "").strip()
+
+    if not password:
+        return jsonify({"error": "Password is required to delete the account"}), 400
+    if confirmation != "DELETE":
+        return jsonify({"error": 'Type "DELETE" to confirm account deletion'}), 400
+
+    try:
+        with DBContext(dict_cursor=True) as (_, cursor):
+            cursor.execute(
+                "SELECT password_hash FROM users WHERE user_id = %s",
+                (session["user_id"],),
+            )
+            row = cursor.fetchone()
+            if not row:
+                # Stale session — treat as already-deleted, clear it and report success
+                session.clear()
+                return jsonify({"message": "Account already removed"}), 200
+            if not check_password_hash(row["password_hash"], password):
+                return jsonify({"error": "Password is incorrect"}), 401
+
+            cursor.execute(
+                "DELETE FROM users WHERE user_id = %s",
+                (session["user_id"],),
+            )
+    except RuntimeError:
+        return jsonify({"error": "Database unavailable"}), 503
+    except Exception:
+        logger.exception("delete_account error")
+        return jsonify({"error": "Could not delete account"}), 500
+
+    # Drop the session AFTER the DB commit succeeded so a DB failure
+    # doesn't log the user out from a still-existing account.
+    user_id_removed = session.get("user_id")
+    session.clear()
+    logger.info("Account deleted: user_id=%s", user_id_removed)
+
+    return jsonify({"message": "Account deleted successfully"}), 200
+
+
 @profile_bp.route("/change-password", methods=["POST"])
 def change_password():
     if "user_id" not in session:

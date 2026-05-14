@@ -108,8 +108,263 @@
     `;
   }
 
-  // Lazy-fetch events for one match and inject the timeline into its card.
-  async function _toggleMatchEvents(matchId, panelEl) {
+  // ── Lineup / formation rendering ─────────────────────────────────────────
+
+  // "K. De Bruyne" → "De Bruyne"; "Salah" → "Salah".  Keeps the surname
+  // (or surnames) and drops the leading initial — fits nicely on a token.
+  function _lastNameOnly(fullName) {
+    if (!fullName) return "";
+    const parts = String(fullName).trim().split(/\s+/);
+    if (parts.length === 1) return parts[0];
+    // Drop the first token if it looks like an initial ("K." or "M-A.")
+    if (/\.$/.test(parts[0])) return parts.slice(1).join(" ");
+    return fullName;
+  }
+
+  function _renderMiniPitch(teamData) {
+    if (!teamData) return "";
+    const startXI = teamData.start_xi || [];
+    if (!startXI.length) return "";
+
+    // Find the formation's bounding box from the grid coordinates so we
+    // can place players proportionally regardless of the formation shape
+    // (3-5-2, 4-3-3, 4-2-3-1 all just work).
+    let maxLine = 0;
+    let maxPos = 0;
+    startXI.forEach((p) => {
+      if (!p.grid) return;
+      const [line, pos] = String(p.grid).split(":").map(Number);
+      if (line > maxLine) maxLine = line;
+      if (pos > maxPos) maxPos = pos;
+    });
+    if (maxLine === 0) maxLine = 1;
+    if (maxPos === 0) maxPos = 1;
+
+    const tokens = startXI
+      .map((p) => {
+        if (!p.grid) return "";
+        const [line, pos] = String(p.grid).split(":").map(Number);
+        // Line 1 = GK → render at the BOTTOM of the pitch (own goal).
+        // Highest line → render at the TOP (attacking direction).
+        const yPercent = 100 - ((line - 0.5) / maxLine) * 100;
+        const xPercent = ((pos - 0.5) / maxPos) * 100;
+        const number = p.number != null ? p.number : "";
+        const name = _lastNameOnly(p.name);
+        return `
+          <div class="formation-player" style="top:${yPercent}%; left:${xPercent}%">
+            <span class="formation-number">${PrimeScoreApp.escapeHtml(String(number))}</span>
+            <span class="formation-name">${PrimeScoreApp.escapeHtml(name)}</span>
+          </div>
+        `;
+      })
+      .join("");
+
+    const subsList = (teamData.substitutes || [])
+      .map((p) => {
+        const num = p.number != null ? `${p.number}. ` : "";
+        return `<li>${PrimeScoreApp.escapeHtml(num + (p.name || ""))}</li>`;
+      })
+      .join("");
+
+    return `
+      <div class="formation-block">
+        <div class="formation-header">
+          ${teamData.team_logo ? `<img src="${PrimeScoreApp.escapeHtml(teamData.team_logo)}" class="crest-xs" alt="" />` : ""}
+          <strong>${PrimeScoreApp.escapeHtml(teamData.team_name || "Team")}</strong>
+          <span class="formation-meta">${PrimeScoreApp.escapeHtml(teamData.formation || "")}${teamData.coach ? " · " + PrimeScoreApp.escapeHtml(teamData.coach) : ""}</span>
+        </div>
+        <div class="formation-pitch">${tokens}</div>
+        ${subsList ? `<details class="formation-subs"><summary>Substitutes</summary><ul>${subsList}</ul></details>` : ""}
+      </div>
+    `;
+  }
+
+  // ── Tabbed details panel (Lineups + Events) ─────────────────────────────
+
+  // Build the tab + content scaffolding inside the panel on first open.
+  function _initialiseDetailsPanel(panelEl, matchId) {
+    // H2H tab only makes sense if we have both team IDs (cached on the panel
+    // by renderMatchCards via data attributes).
+    const hasTeamIds = panelEl.dataset.homeId && panelEl.dataset.awayId;
+    const h2hTab = hasTeamIds
+      ? `<button type="button" class="match-details-tab" data-tab="h2h">H2H</button>`
+      : "";
+    const h2hContent = hasTeamIds
+      ? `<div class="match-details-content" data-tab="h2h" style="display:none">
+           <p class="message">Click to load head-to-head.</p>
+         </div>`
+      : "";
+
+    panelEl.innerHTML = `
+      <div class="match-details-tabs">
+        <button type="button" class="match-details-tab active" data-tab="lineups">Lineups</button>
+        <button type="button" class="match-details-tab" data-tab="events">Events</button>
+        ${h2hTab}
+      </div>
+      <div class="match-details-content" data-tab="lineups">
+        <p class="message">Loading lineups…</p>
+      </div>
+      <div class="match-details-content" data-tab="events" style="display:none">
+        <p class="message">Click to load events.</p>
+      </div>
+      ${h2hContent}
+    `;
+
+    // Tab switching — lazy loads each tab the first time it's opened.
+    panelEl.querySelectorAll(".match-details-tab").forEach((tabBtn) => {
+      tabBtn.addEventListener("click", () => {
+        const targetTab = tabBtn.dataset.tab;
+        panelEl.querySelectorAll(".match-details-tab").forEach((btn) =>
+          btn.classList.toggle("active", btn.dataset.tab === targetTab),
+        );
+        panelEl.querySelectorAll(".match-details-content").forEach((contentEl) => {
+          contentEl.style.display = contentEl.dataset.tab === targetTab ? "" : "none";
+        });
+        if (targetTab === "lineups") {
+          _ensureLineupsLoaded(panelEl, matchId);
+        } else if (targetTab === "events") {
+          _ensureEventsLoaded(panelEl, matchId);
+        } else if (targetTab === "h2h") {
+          _ensureH2HLoaded(panelEl, matchId);
+        }
+      });
+    });
+
+    // Default tab is Lineups — kick off the fetch right away.
+    _ensureLineupsLoaded(panelEl, matchId);
+  }
+
+  // ── H2H rendering ────────────────────────────────────────────────────────
+
+  function _renderH2HSummary(summary, homeName, awayName) {
+    const total = summary?.total || 0;
+    if (!total) {
+      return `<p class="message">No previous finished meetings on record.</p>`;
+    }
+    return `
+      <div class="h2h-summary">
+        <div class="h2h-summary-team">
+          <span class="h2h-summary-count">${summary.home_wins}</span>
+          <span class="h2h-summary-label">${PrimeScoreApp.escapeHtml(homeName || "Home")} wins</span>
+        </div>
+        <div class="h2h-summary-team h2h-summary-draws">
+          <span class="h2h-summary-count">${summary.draws}</span>
+          <span class="h2h-summary-label">Draws</span>
+        </div>
+        <div class="h2h-summary-team">
+          <span class="h2h-summary-count">${summary.away_wins}</span>
+          <span class="h2h-summary-label">${PrimeScoreApp.escapeHtml(awayName || "Away")} wins</span>
+        </div>
+      </div>
+      <p class="subtitle h2h-total">From the last ${total} finished meetings</p>
+    `;
+  }
+
+  function _renderH2HFixtureRow(fixture) {
+    const dateStr = fixture.date
+      ? new Date(fixture.date).toLocaleDateString()
+      : "";
+    const scoreStr =
+      fixture.home_score != null && fixture.away_score != null
+        ? `${fixture.home_score} : ${fixture.away_score}`
+        : "vs";
+    return `
+      <li class="h2h-row">
+        <span class="h2h-date">${PrimeScoreApp.escapeHtml(dateStr)}</span>
+        <span class="h2h-comp">${PrimeScoreApp.escapeHtml(fixture.competition || "")}</span>
+        <span class="h2h-teams">
+          ${PrimeScoreApp.escapeHtml(fixture.home_team || "")}
+          <strong class="h2h-score">${PrimeScoreApp.escapeHtml(scoreStr)}</strong>
+          ${PrimeScoreApp.escapeHtml(fixture.away_team || "")}
+        </span>
+      </li>
+    `;
+  }
+
+  async function _ensureH2HLoaded(panelEl, matchId) {
+    const target = panelEl.querySelector('.match-details-content[data-tab="h2h"]');
+    if (!target || target.dataset.loaded === "true") return;
+    target.dataset.loaded = "true";
+
+    const homeId = panelEl.dataset.homeId;
+    const awayId = panelEl.dataset.awayId;
+    const homeName = panelEl.dataset.homeName || "";
+    const awayName = panelEl.dataset.awayName || "";
+
+    if (!homeId || !awayId) {
+      target.innerHTML = `<p class="message">Team identifiers unavailable — can't load head-to-head.</p>`;
+      return;
+    }
+
+    target.innerHTML = `<p class="message">Loading head-to-head…</p>`;
+    try {
+      const url = `/api/matches/${matchId}/h2h?home_id=${encodeURIComponent(homeId)}&away_id=${encodeURIComponent(awayId)}`;
+      const data = await PrimeScoreApp.apiFetch(url);
+      const fixtures = data.fixtures || [];
+      if (!fixtures.length) {
+        target.innerHTML = `<p class="message">No previous meetings on record between these teams.</p>`;
+        return;
+      }
+      target.innerHTML = `
+        ${_renderH2HSummary(data.summary, homeName, awayName)}
+        <ul class="h2h-list">${fixtures.map(_renderH2HFixtureRow).join("")}</ul>
+      `;
+    } catch (err) {
+      console.warn("[h2h]", matchId, err);
+      target.innerHTML = `<p class="message">Could not load head-to-head — try again shortly.</p>`;
+      target.dataset.loaded = "false";
+    }
+  }
+
+  async function _ensureLineupsLoaded(panelEl, matchId) {
+    const target = panelEl.querySelector('.match-details-content[data-tab="lineups"]');
+    if (!target || target.dataset.loaded === "true") return;
+    target.dataset.loaded = "true";
+    try {
+      const data = await PrimeScoreApp.apiFetch(`/api/matches/${matchId}/lineups`);
+      const home = data.home;
+      const away = data.away;
+      if (!home && !away) {
+        target.innerHTML = `<p class="message">Lineups not yet available for this match.</p>`;
+        target.dataset.loaded = "false"; // allow retry later when published
+        return;
+      }
+      target.innerHTML = `
+        <div class="formation-stack">
+          ${_renderMiniPitch(home) || `<p class="message">Home lineup unavailable.</p>`}
+          ${_renderMiniPitch(away) || `<p class="message">Away lineup unavailable.</p>`}
+        </div>
+      `;
+    } catch (err) {
+      console.warn("[lineups]", matchId, err);
+      target.innerHTML = `<p class="message">Could not load lineups — try again shortly.</p>`;
+      target.dataset.loaded = "false";
+    }
+  }
+
+  async function _ensureEventsLoaded(panelEl, matchId) {
+    const target = panelEl.querySelector('.match-details-content[data-tab="events"]');
+    if (!target || target.dataset.loaded === "true") return;
+    target.dataset.loaded = "true";
+    target.innerHTML = `<p class="message">Loading match events…</p>`;
+    try {
+      const data = await PrimeScoreApp.apiFetch(`/api/matches/${matchId}/events`);
+      const events = data.events || [];
+      if (!events.length) {
+        target.innerHTML = `<p class="message">No events recorded yet.</p>`;
+      } else {
+        target.innerHTML = `<ul class="event-list">${events.map(_renderEventRow).join("")}</ul>`;
+      }
+    } catch (err) {
+      console.warn("[match events]", matchId, err);
+      target.innerHTML = `<p class="message">Could not load events — try again shortly.</p>`;
+      target.dataset.loaded = "false";
+    }
+  }
+
+  // Open / close the details panel under a match card. First open builds
+  // the tab scaffolding; subsequent toggles just show/hide.
+  function _toggleMatchDetails(matchId, panelEl) {
     if (!panelEl) return;
     const isOpen = panelEl.dataset.open === "true";
     if (isOpen) {
@@ -121,21 +376,9 @@
     panelEl.style.display = "block";
     panelEl.dataset.open = "true";
 
-    if (panelEl.dataset.loaded === "true") return; // already fetched, just re-show
-
-    panelEl.innerHTML = `<p class="message">Loading match events…</p>`;
-    try {
-      const data = await PrimeScoreApp.apiFetch(`/api/matches/${matchId}/events`);
-      const events = data.events || [];
-      if (!events.length) {
-        panelEl.innerHTML = `<p class="message">No events recorded yet.</p>`;
-      } else {
-        panelEl.innerHTML = `<ul class="event-list">${events.map(_renderEventRow).join("")}</ul>`;
-      }
-      panelEl.dataset.loaded = "true";
-    } catch (err) {
-      console.warn("[match events]", matchId, err);
-      panelEl.innerHTML = `<p class="message">Could not load events — try again shortly.</p>`;
+    if (panelEl.dataset.initialised !== "true") {
+      panelEl.dataset.initialised = "true";
+      _initialiseDetailsPanel(panelEl, matchId);
     }
   }
 
@@ -157,7 +400,13 @@
           isLive && match.minute != null
             ? `<span class="live-minute">${PrimeScoreApp.escapeHtml(String(match.minute))}'</span>`
             : "";
-        const panelId = `${containerId}-events-${idx}`;
+        const panelId = `${containerId}-details-${idx}`;
+        // Pass team IDs + names through to the panel via data attributes so
+        // the H2H tab can query the backend without an extra lookup.
+        const homeIdAttr = match.home_team_id != null ? `data-home-id="${PrimeScoreApp.escapeHtml(String(match.home_team_id))}"` : "";
+        const awayIdAttr = match.away_team_id != null ? `data-away-id="${PrimeScoreApp.escapeHtml(String(match.away_team_id))}"` : "";
+        const homeNameAttr = match.home_team ? `data-home-name="${PrimeScoreApp.escapeHtml(match.home_team)}"` : "";
+        const awayNameAttr = match.away_team ? `data-away-name="${PrimeScoreApp.escapeHtml(match.away_team)}"` : "";
         return `
           <div class="match-card${isLive ? " match-card-live" : ""}">
             <div class="teams">${PrimeScoreApp.escapeHtml(match.home_team)} vs ${PrimeScoreApp.escapeHtml(match.away_team)}</div>
@@ -167,9 +416,9 @@
             ).toLocaleString()}</div>
             ${match.status ? `<div class="status">${PrimeScoreApp.escapeHtml(match.status)}</div>` : ""}
             ${
-              isLive && match.match_id
-                ? `<button class="btn-secondary match-events-toggle" data-match-id="${match.match_id}" data-panel-id="${panelId}" type="button">View cards &amp; subs</button>
-                   <div id="${panelId}" class="match-events-panel" style="display:none" data-open="false" data-loaded="false"></div>`
+              match.match_id
+                ? `<button class="btn-secondary match-details-toggle" data-match-id="${match.match_id}" data-panel-id="${panelId}" type="button">View details</button>
+                   <div id="${panelId}" class="match-details-panel" style="display:none" data-open="false" data-initialised="false" ${homeIdAttr} ${awayIdAttr} ${homeNameAttr} ${awayNameAttr}></div>`
                 : ""
             }
           </div>
@@ -177,12 +426,12 @@
       })
       .join("");
 
-    // Wire up event-panel toggles after the HTML lands in the DOM
-    container.querySelectorAll(".match-events-toggle").forEach((btn) => {
+    // Wire up the per-card details panel toggles (Lineups + Events tabs)
+    container.querySelectorAll(".match-details-toggle").forEach((btn) => {
       btn.addEventListener("click", () => {
         const matchId = btn.dataset.matchId;
         const panel = document.getElementById(btn.dataset.panelId);
-        _toggleMatchEvents(matchId, panel);
+        _toggleMatchDetails(matchId, panel);
       });
     });
   }
